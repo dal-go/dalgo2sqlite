@@ -113,3 +113,33 @@ func buildCreateIndexSQL(idx dbschema.IndexDef, opts ddl.Options) (string, error
 	sb.WriteString(")")
 	return sb.String(), nil
 }
+
+func buildDropTableSQL(name string, opts ddl.Options) string {
+	if opts.IfExists {
+		return "DROP TABLE IF EXISTS " + name
+	}
+	return "DROP TABLE " + name
+}
+
+func buildDropIndexSQL(name string, opts ddl.Options) string {
+	if opts.IfExists {
+		return "DROP INDEX IF EXISTS " + name
+	}
+	return "DROP INDEX " + name
+}
+
+func buildAlterTableAddColumnSQL(table string, f dbschema.FieldDef) (string, error) {
+	colDecl, err := buildColumnDecl(f, false, false, false)
+	if err != nil {
+		return "", err
+	}
+	return "ALTER TABLE " + table + " ADD COLUMN " + colDecl, nil
+}
+
+func buildAlterTableDropColumnSQL(table string, col dal.FieldName) string {
+	return "ALTER TABLE " + table + " DROP COLUMN " + string(col)
+}
+
+func buildAlterTableRenameColumnSQL(table string, oldName, newName dal.FieldName) string {
+	return "ALTER TABLE " + table + " RENAME COLUMN " + string(oldName) + " TO " + string(newName)
+}
