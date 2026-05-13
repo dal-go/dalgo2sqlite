@@ -39,3 +39,17 @@ func TestNewDatabase_RejectsNonDatabaseFile(t *testing.T) {
 		t.Errorf("NewDatabase: expected nil db on error, got %T", db)
 	}
 }
+
+func TestDatabase_SupportsConcurrentConnections_False(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	db, err := NewDatabase(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	if db.SupportsConcurrentConnections() {
+		t.Error("expected SupportsConcurrentConnections() == false for SQLite, got true")
+	}
+}
