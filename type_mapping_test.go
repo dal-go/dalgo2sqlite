@@ -1,6 +1,9 @@
 package dalgo2sqlite
 
 import (
+	"context"
+	"database/sql"
+	"path/filepath"
 	"testing"
 
 	"github.com/dal-go/dalgo/dbschema"
@@ -72,5 +75,51 @@ func TestDbschemaTypeFromSQLite(t *testing.T) {
 				t.Errorf("dbschemaTypeFromSQLite(%q): got %v, want %v", c.in, got, c.want)
 			}
 		})
+	}
+}
+
+func TestTimeMarkers_RoundTrip(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	sqlDB, err := sql.Open("sqlite3", filepath.Join(dir, "markers.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = sqlDB.Close() }()
+	ctx := context.Background()
+
+	if err := ensureTimeMarkerTable(ctx, sqlDB); err != nil {
+		t.Fatalf("ensureTimeMarkerTable: %v", err)
+	}
+	if err := writeTimeMarker(ctx, sqlDB, "events", "occurred_at"); err != nil {
+		t.Fatalf("writeTimeMarker: %v", err)
+	}
+	if err := writeTimeMarker(ctx, sqlDB, "events", "logged_at"); err != nil {
+		t.Fatalf("writeTimeMarker (second): %v", err)
+	}
+
+	got, err := readTimeMarkers(ctx, sqlDB, "events")
+	if err != nil {
+		t.Fatalf("readTimeMarkers: %v", err)
+	}
+	if len(got) != 2 || !got["occurred_at"] || !got["logged_at"] {
+		t.Errorf("readTimeMarkers = %v, want {occurred_at, logged_at}", got)
+	}
+
+	// Idempotence: writing the same marker twice MUST NOT error.
+	if err := writeTimeMarker(ctx, sqlDB, "events", "occurred_at"); err != nil {
+		t.Errorf("writeTimeMarker idempotence: %v", err)
+	}
+
+	// Drop all markers for the collection and confirm they're gone.
+	if err := dropTimeMarkers(ctx, sqlDB, "events"); err != nil {
+		t.Fatalf("dropTimeMarkers: %v", err)
+	}
+	after, err := readTimeMarkers(ctx, sqlDB, "events")
+	if err != nil {
+		t.Fatalf("readTimeMarkers after drop: %v", err)
+	}
+	if len(after) != 0 {
+		t.Errorf("readTimeMarkers after drop = %v, want empty", after)
 	}
 }
