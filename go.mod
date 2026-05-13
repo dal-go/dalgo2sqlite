@@ -7,7 +7,7 @@ replace github.com/dal-go/dalgo => ../dalgo
 replace github.com/dal-go/dalgo2sql => ../dalgo2sql
 
 require (
-	github.com/dal-go/dalgo v0.41.14
+	github.com/dal-go/dalgo v0.41.15
 	github.com/dal-go/dalgo2sql v0.0.0-00010101000000-000000000000
 	github.com/mattn/go-sqlite3 v1.14.44
 )
