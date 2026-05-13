@@ -6,7 +6,7 @@ This directory tracks the SpecScore feature specifications for the **dalgo2sqlit
 
 | Feature | Status | Description |
 |---|---|---|
-| [dbschema-ddl-coverage](dbschema-ddl-coverage/README.md) | Implementing | SQLite-native implementations of `dbschema.SchemaReader`, `ddl.SchemaModifier`, and `dal.ConcurrencyAware`. Composes `dalgo2sql` for the `dal.DB` surface. |
+| [dbschema-ddl-coverage](dbschema-ddl-coverage/README.md) | Implemented | SQLite-native implementations of `dbschema.SchemaReader`, `ddl.SchemaModifier`, and `dal.ConcurrencyAware`. Composes `dalgo2sql` for the `dal.DB` surface. |
 
 ## Outstanding Questions
 

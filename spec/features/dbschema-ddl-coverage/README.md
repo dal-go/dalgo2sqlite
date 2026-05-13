@@ -1,7 +1,6 @@
 # Feature: dbschema + ddl + ConcurrencyAware Coverage for SQLite
 
-**Status:** Implementing
-**Note:** AlterCollection (REQ:alter-collection) is blocked on an upstream `ddl.Applier` Feature in `dal-go/dalgo`. All other REQs are implemented.
+**Status:** Implemented
 **Source Idea:** —
 **Date:** 2026-05-13
 **Owner:** alex
