@@ -119,3 +119,62 @@ func TestBuildCreateIndexSQL_Unique(t *testing.T) {
 		t.Errorf("buildCreateIndexSQL unique mismatch.\n  got:  %s\n  want: %s", got, want)
 	}
 }
+
+func TestBuildDropTableSQL(t *testing.T) {
+	t.Parallel()
+	got := buildDropTableSQL("users", ddl.Options{})
+	want := "DROP TABLE users"
+	if got != want {
+		t.Errorf("buildDropTableSQL mismatch: got %q, want %q", got, want)
+	}
+	gotIf := buildDropTableSQL("users", ddl.ResolveOptions(ddl.IfExists()))
+	wantIf := "DROP TABLE IF EXISTS users"
+	if gotIf != wantIf {
+		t.Errorf("buildDropTableSQL IfExists mismatch: got %q, want %q", gotIf, wantIf)
+	}
+}
+
+func TestBuildAlterTableAddColumn(t *testing.T) {
+	t.Parallel()
+	f := dbschema.FieldDef{Name: dal.FieldName("age"), Type: dbschema.Int, Nullable: true}
+	got, err := buildAlterTableAddColumnSQL("users", f)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := "ALTER TABLE users ADD COLUMN age INTEGER"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestBuildAlterTableDropColumn(t *testing.T) {
+	t.Parallel()
+	got := buildAlterTableDropColumnSQL("users", dal.FieldName("age"))
+	want := "ALTER TABLE users DROP COLUMN age"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestBuildAlterTableRenameColumn(t *testing.T) {
+	t.Parallel()
+	got := buildAlterTableRenameColumnSQL("users", dal.FieldName("email"), dal.FieldName("email_address"))
+	want := "ALTER TABLE users RENAME COLUMN email TO email_address"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestBuildDropIndexSQL(t *testing.T) {
+	t.Parallel()
+	got := buildDropIndexSQL("ix_users_email", ddl.Options{})
+	want := "DROP INDEX ix_users_email"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	gotIf := buildDropIndexSQL("ix_users_email", ddl.ResolveOptions(ddl.IfExists()))
+	wantIf := "DROP INDEX IF EXISTS ix_users_email"
+	if gotIf != wantIf {
+		t.Errorf("got %q, want %q", gotIf, wantIf)
+	}
+}
