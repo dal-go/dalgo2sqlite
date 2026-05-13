@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 
 	"github.com/dal-go/dalgo/dal"
 	"github.com/dal-go/dalgo/dbschema"
@@ -114,10 +115,12 @@ func describeCollectionImpl(ctx context.Context, db *sql.DB, name string) (*dbsc
 				}
 			}
 		}
+		// PK columns are implicitly NOT NULL in SQLite even when notnull=0.
+		nullable := notnull == 0 && pkPosition == 0
 		f := dbschema.FieldDef{
 			Name:     dal.FieldName(colName),
 			Type:     t,
-			Nullable: notnull == 0,
+			Nullable: nullable,
 		}
 		if t == dbschema.Int && pkPosition == 1 {
 			f.AutoIncrement, _ = tableHasAutoIncrement(ctx, db, name)
@@ -151,21 +154,16 @@ func describeCollectionImpl(ctx context.Context, db *sql.DB, name string) (*dbsc
 }
 
 func tableHasAutoIncrement(ctx context.Context, db *sql.DB, table string) (bool, error) {
-	var present string
+	// sqlite_sequence only gains a row after the first INSERT, so we
+	// detect AUTOINCREMENT by inspecting the CREATE TABLE DDL directly.
+	var ddl string
 	err := db.QueryRowContext(ctx,
-		`SELECT name FROM sqlite_master WHERE type='table' AND name='sqlite_sequence'`,
-	).Scan(&present)
+		`SELECT sql FROM sqlite_master WHERE type='table' AND name=?`, table,
+	).Scan(&ddl)
 	if err != nil {
-		return false, nil
+		return false, fmt.Errorf("dalgo2sqlite: tableHasAutoIncrement DDL query: %w", err)
 	}
-	var n int
-	err = db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM sqlite_sequence WHERE name=?`, table,
-	).Scan(&n)
-	if err != nil {
-		return false, fmt.Errorf("dalgo2sqlite: sqlite_sequence query: %w", err)
-	}
-	return n > 0, nil
+	return strings.Contains(strings.ToUpper(ddl), "AUTOINCREMENT"), nil
 }
 
 func sortPKByOrder(entries []pkEntry) {
