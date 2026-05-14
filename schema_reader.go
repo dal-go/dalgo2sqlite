@@ -102,11 +102,12 @@ func describeCollectionImpl(ctx context.Context, db *sql.DB, name string) (*dbsc
 		_ = dfltValue // Default population is plan-deferred
 
 		var t dbschema.Type
+		var precision *dbschema.Precision
 		if timeMarkers[colName] {
 			t = dbschema.Time
 		} else {
 			var ok bool
-			t, ok = dbschemaTypeFromSQLite(declType)
+			t, precision, ok = dbschemaTypeFromSQLite(declType)
 			if !ok {
 				return nil, &dbschema.NotSupportedError{
 					Op:      "DescribeCollection",
@@ -118,9 +119,10 @@ func describeCollectionImpl(ctx context.Context, db *sql.DB, name string) (*dbsc
 		// PK columns are implicitly NOT NULL in SQLite even when notnull=0.
 		nullable := notnull == 0 && pkPosition == 0
 		f := dbschema.FieldDef{
-			Name:     dal.FieldName(colName),
-			Type:     t,
-			Nullable: nullable,
+			Name:      dal.FieldName(colName),
+			Type:      t,
+			Precision: precision,
+			Nullable:  nullable,
 		}
 		if t == dbschema.Int && pkPosition == 1 {
 			f.AutoIncrement, _ = tableHasAutoIncrement(ctx, db, name)

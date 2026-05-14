@@ -4,10 +4,17 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/dal-go/dalgo/dbschema"
 )
+
+// numericPrecisionRe matches a declared NUMERIC/DECIMAL type with an
+// optional (precision, scale) suffix, e.g. "NUMERIC(10,2)" or
+// "DECIMAL(5, 0)". Whitespace around the comma is tolerated.
+var numericPrecisionRe = regexp.MustCompile(`^(?:NUMERIC|DECIMAL)\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)$`)
 
 // sqliteTypeFor returns the SQLite native column-type keyword that
 // the ddl layer emits for the given dbschema.Type.
@@ -40,30 +47,57 @@ func sqliteTypeFor(t dbschema.Type) (string, error) {
 //   - Contains "CHAR"/"CLOB"/"TEXT" → TEXT → dbschema.String
 //   - Contains "BLOB" → BLOB → dbschema.Bytes
 //   - Contains "REAL"/"FLOA"/"DOUB" → REAL → dbschema.Float
-//   - "NUMERIC"/"DECIMAL" → dbschema.Decimal
-//   - Else → (Null, false) for explicit "unrecognized"
+//   - "NUMERIC"/"DECIMAL" (optionally with "(p,s)") → dbschema.Decimal,
+//     carrying the parsed *dbschema.Precision when the suffix is present.
+//   - "DATETIME"/"DATE"/"TIME" → dbschema.Time. Real-world fixtures
+//     (e.g. the Chinook sample db) declare date/time columns with these
+//     keywords; SQLite itself has no native time affinity, so we treat
+//     them as Time at the schema level here. Note: the sidecar
+//     Time-markers table still takes precedence in DescribeCollection
+//     for plain TEXT columns that were created via sqliteTypeFor.
+//   - Else → (Null, nil, false) for explicit "unrecognized"
 //
-// Time recognition requires consulting the sidecar Time-markers table
-// — this function does NOT promote TEXT to Time on its own.
-func dbschemaTypeFromSQLite(declared string) (dbschema.Type, bool) {
-	upper := strings.ToUpper(declared)
+// The function checks DATETIME before the generic "INT/CHAR/..."
+// substring branches simply for clarity; none of DATETIME/DATE/TIME
+// contains any of those substrings, so ordering does not change
+// semantics for existing inputs.
+func dbschemaTypeFromSQLite(declared string) (dbschema.Type, *dbschema.Precision, bool) {
+	upper := strings.ToUpper(strings.TrimSpace(declared))
+
+	// Date/time keywords. We accept the bare forms only (no length/
+	// precision suffix) — SQLite users essentially never decorate them.
+	switch upper {
+	case "DATETIME", "DATE", "TIME", "TIMESTAMP":
+		return dbschema.Time, nil, true
+	}
+
+	// NUMERIC(p,s) / DECIMAL(p,s) with explicit precision.
+	if m := numericPrecisionRe.FindStringSubmatch(upper); m != nil {
+		total, errT := strconv.Atoi(m[1])
+		scale, errS := strconv.Atoi(m[2])
+		if errT == nil && errS == nil {
+			return dbschema.Decimal, &dbschema.Precision{Total: total, Scale: scale}, true
+		}
+		// Fall through: malformed numerics drop to the substring branch.
+	}
+
 	switch {
 	case strings.Contains(upper, "INT"):
-		return dbschema.Int, true
+		return dbschema.Int, nil, true
 	case strings.Contains(upper, "CHAR"),
 		strings.Contains(upper, "CLOB"),
 		strings.Contains(upper, "TEXT"):
-		return dbschema.String, true
+		return dbschema.String, nil, true
 	case strings.Contains(upper, "BLOB"):
-		return dbschema.Bytes, true
+		return dbschema.Bytes, nil, true
 	case strings.Contains(upper, "REAL"),
 		strings.Contains(upper, "FLOA"),
 		strings.Contains(upper, "DOUB"):
-		return dbschema.Float, true
+		return dbschema.Float, nil, true
 	case upper == "NUMERIC", upper == "DECIMAL":
-		return dbschema.Decimal, true
+		return dbschema.Decimal, nil, true
 	default:
-		return dbschema.Null, false
+		return dbschema.Null, nil, false
 	}
 }
 

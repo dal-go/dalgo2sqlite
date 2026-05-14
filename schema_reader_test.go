@@ -168,3 +168,44 @@ func TestListIndexes_ExcludesPKImplicit(t *testing.T) {
 		}
 	}
 }
+
+// TestDescribeCollection_DatetimeAndNumericTypes asserts that
+// real-world declared types like DATETIME and NUMERIC(p,s) — used by
+// e.g. the Chinook sample database — are mapped to dbschema.Time and
+// dbschema.Decimal respectively, instead of returning
+// "unrecognized SQLite type".
+func TestDescribeCollection_DatetimeAndNumericTypes(t *testing.T) {
+	t.Parallel()
+	db := openTestDB(t)
+	defer func() { _ = db.Close() }()
+	ctx := context.Background()
+
+	const create = `CREATE TABLE invoices (
+		id INTEGER PRIMARY KEY,
+		issued_at DATETIME,
+		total NUMERIC(10,2) NOT NULL
+	)`
+	if _, err := db.sqlDB.ExecContext(ctx, create); err != nil {
+		t.Fatal(err)
+	}
+
+	ref := dal.NewRootCollectionRef("invoices", "")
+	got, err := db.DescribeCollection(ctx, &ref)
+	if err != nil {
+		t.Fatalf("DescribeCollection: %v", err)
+	}
+	if len(got.Fields) != 3 {
+		t.Fatalf("Fields len = %d, want 3", len(got.Fields))
+	}
+	if got.Fields[1].Type != dbschema.Time {
+		t.Errorf("issued_at Type = %v, want Time", got.Fields[1].Type)
+	}
+	if got.Fields[2].Type != dbschema.Decimal {
+		t.Errorf("total Type = %v, want Decimal", got.Fields[2].Type)
+	}
+	if got.Fields[2].Precision == nil {
+		t.Errorf("total Precision = nil, want (10,2)")
+	} else if got.Fields[2].Precision.Total != 10 || got.Fields[2].Precision.Scale != 2 {
+		t.Errorf("total Precision = %+v, want (10,2)", *got.Fields[2].Precision)
+	}
+}

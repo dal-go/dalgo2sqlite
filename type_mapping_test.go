@@ -49,30 +49,52 @@ func TestSQLiteTypeFor_RejectsNull(t *testing.T) {
 func TestDbschemaTypeFromSQLite(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
-		in   string
-		want dbschema.Type
-		ok   bool
+		in            string
+		want          dbschema.Type
+		ok            bool
+		wantPrecision *dbschema.Precision
 	}{
-		{"INTEGER", dbschema.Int, true},
-		{"REAL", dbschema.Float, true},
-		{"TEXT", dbschema.String, true},
-		{"BLOB", dbschema.Bytes, true},
-		{"NUMERIC", dbschema.Decimal, true},
-		{"VARCHAR(255)", dbschema.String, true},
-		{"FLOAT", dbschema.Float, true},
-		{"INT", dbschema.Int, true},
-		{"MY_CUSTOM_TYPE", dbschema.Null, false},
+		{"INTEGER", dbschema.Int, true, nil},
+		{"REAL", dbschema.Float, true, nil},
+		{"TEXT", dbschema.String, true, nil},
+		{"BLOB", dbschema.Bytes, true, nil},
+		{"NUMERIC", dbschema.Decimal, true, nil},
+		{"VARCHAR(255)", dbschema.String, true, nil},
+		{"FLOAT", dbschema.Float, true, nil},
+		{"INT", dbschema.Int, true, nil},
+		{"MY_CUSTOM_TYPE", dbschema.Null, false, nil},
+		// New: date/time keywords.
+		{"DATETIME", dbschema.Time, true, nil},
+		{"datetime", dbschema.Time, true, nil},
+		{"DATE", dbschema.Time, true, nil},
+		{"TIME", dbschema.Time, true, nil},
+		// New: NUMERIC/DECIMAL with precision.
+		{"NUMERIC(10,2)", dbschema.Decimal, true, &dbschema.Precision{Total: 10, Scale: 2}},
+		{"numeric(38,9)", dbschema.Decimal, true, &dbschema.Precision{Total: 38, Scale: 9}},
+		{"DECIMAL(5,0)", dbschema.Decimal, true, &dbschema.Precision{Total: 5, Scale: 0}},
+		{"DECIMAL(8, 3)", dbschema.Decimal, true, &dbschema.Precision{Total: 8, Scale: 3}},
+		// Defensive: truly unknown type still rejected.
+		{"UNKNOWN_TYPE", dbschema.Null, false, nil},
+		{"JSON", dbschema.Null, false, nil},
 	}
 	for _, c := range cases {
 		c := c
 		t.Run(c.in, func(t *testing.T) {
 			t.Parallel()
-			got, ok := dbschemaTypeFromSQLite(c.in)
+			got, gotPrec, ok := dbschemaTypeFromSQLite(c.in)
 			if ok != c.ok {
 				t.Errorf("dbschemaTypeFromSQLite(%q): ok = %v, want %v", c.in, ok, c.ok)
 			}
 			if got != c.want {
 				t.Errorf("dbschemaTypeFromSQLite(%q): got %v, want %v", c.in, got, c.want)
+			}
+			switch {
+			case c.wantPrecision == nil && gotPrec != nil:
+				t.Errorf("dbschemaTypeFromSQLite(%q): precision = %+v, want nil", c.in, gotPrec)
+			case c.wantPrecision != nil && gotPrec == nil:
+				t.Errorf("dbschemaTypeFromSQLite(%q): precision = nil, want %+v", c.in, c.wantPrecision)
+			case c.wantPrecision != nil && gotPrec != nil && *c.wantPrecision != *gotPrec:
+				t.Errorf("dbschemaTypeFromSQLite(%q): precision = %+v, want %+v", c.in, *gotPrec, *c.wantPrecision)
 			}
 		})
 	}

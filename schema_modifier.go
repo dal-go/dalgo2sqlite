@@ -303,14 +303,15 @@ func readCollectionDefViaTx(ctx context.Context, tx *sql.Tx, name string) (*dbsc
 		if err := rows.Scan(&colName, &declType, &notnull, &pkPos); err != nil {
 			return nil, err
 		}
-		t, ok := dbschemaTypeFromSQLite(declType)
+		t, precision, ok := dbschemaTypeFromSQLite(declType)
 		if !ok {
 			t = dbschema.String // safe fallback for migration; lossy but progresses
 		}
 		fields = append(fields, dbschema.FieldDef{
-			Name:     dal.FieldName(colName),
-			Type:     t,
-			Nullable: notnull == 0 && pkPos == 0,
+			Name:      dal.FieldName(colName),
+			Type:      t,
+			Precision: precision,
+			Nullable:  notnull == 0 && pkPos == 0,
 		})
 		if pkPos > 0 {
 			pkEs = append(pkEs, pkE{col: colName, order: pkPos})
