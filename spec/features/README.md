@@ -1,3 +1,7 @@
+---
+format: https://specscore.md/features-index-specification
+---
+
 # Features
 
 This directory tracks the SpecScore feature specifications for the **dalgo2sqlite** repository.
@@ -8,7 +12,7 @@ This directory tracks the SpecScore feature specifications for the **dalgo2sqlit
 |---|---|---|
 | [dbschema-ddl-coverage](dbschema-ddl-coverage/README.md) | Implemented | SQLite-native implementations of `dbschema.SchemaReader`, `ddl.SchemaModifier`, and `dal.ConcurrencyAware`. Composes `dalgo2sql` for the `dal.DB` surface. |
 
-## Outstanding Questions
+## Open Questions
 
 None at this time.
 
