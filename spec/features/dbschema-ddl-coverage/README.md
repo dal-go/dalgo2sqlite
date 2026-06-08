@@ -1,6 +1,13 @@
+---
+format: https://specscore.md/feature-specification
+status: Implemented
+---
+
 # Feature: dbschema + ddl + ConcurrencyAware Coverage for SQLite
 
+> [SpecScore.**Studio**](https://specscore.studio): | [Explore](https://specscore.studio/app/github.com/dal-go/dalgo2sqlite/spec/features/dbschema-ddl-coverage?op=explore) | [Edit](https://specscore.studio/app/github.com/dal-go/dalgo2sqlite/spec/features/dbschema-ddl-coverage?op=edit) | [Ask question](https://specscore.studio/app/github.com/dal-go/dalgo2sqlite/spec/features/dbschema-ddl-coverage?op=ask) | [Request change](https://specscore.studio/app/github.com/dal-go/dalgo2sqlite/spec/features/dbschema-ddl-coverage?op=request-change) |
 **Status:** Implemented
+**Source Ideas:** —
 **Source Idea:** —
 **Date:** 2026-05-13
 **Owner:** alex
@@ -360,7 +367,7 @@ No source Idea exists. The implicit assumptions this Feature commits to:
 **When** the caller invokes `reader.DescribeCollection(ctx, &dal.CollectionRef{Name:"weird_table"})`
 **Then** the call returns `(nil, *dbschema.NotSupportedError)`; the error's `Op` field is `"DescribeCollection"`; the `Reason` field names the column `body` and the unrecognized type `MY_CUSTOM_TYPE`.
 
-## Outstanding Questions
+## Open Questions
 
 - **Time storage marker.** REQ:type-mapping pins that `Time` round-trips via the driver's writes-during-CreateCollection mechanism, but the mechanism itself (per-column comment via `COMMENT ON COLUMN` extension — SQLite doesn't have it natively; or a sidecar `_dalgo_meta` table) is plan-time. Pick at plan time.
 - **Collection-not-found error type.** The `dbschema` package currently exports only `*NotSupportedError` (no `NotFoundError`). REQ:describe-collection's contract is therefore content-based (`err.Error()` contains `"not found"` + collection name). Plan-time options: (a) add `dbschema.NotFoundError` to `dal-go/dalgo` as a sibling Feature first, then this Feature consumes it; (b) define `dalgo2sqlite.ErrCollectionNotFound` locally and document the contract. Decide at plan time. Either way the AC passes by the message-content rule.

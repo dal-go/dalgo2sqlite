@@ -6,7 +6,7 @@ SpecScore tree for the `dalgo2sqlite` SQLite-specific DALgo driver.
 |---|---|
 | [features/](features/README.md) | Feature specifications |
 
-## Outstanding Questions
+## Open Questions
 
 None at this time.
 
