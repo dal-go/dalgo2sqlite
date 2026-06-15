@@ -7,3 +7,32 @@ SQLite-specific DALgo driver. Wraps `github.com/dal-go/dalgo2sql` to provide the
 - `dal.ConcurrencyAware` — advertises `Concurrency() = 1` for write paths (SQLite is single-writer)
 
 Used by consumers (e.g. `datatug-cli`'s `db copy`) that need schema-modification and concurrency hints through the unified DALgo abstraction without hand-rolling engine-specific SQL.
+
+## Open question: migrate to a pure-Go SQLite driver?
+
+This package currently depends on `github.com/mattn/go-sqlite3`, a cgo binding
+to the C SQLite library. That forces `CGO_ENABLED=1`, which:
+
+- requires a C toolchain in CI (we now pass `cgo_enabled: true` to the shared
+  `strongo/go-ci-action` workflow, against its `CGO_ENABLED=0` default), and
+- prevents single static binaries and easy cross-compilation for downstream
+  consumers (e.g. `datatug-cli`).
+
+A pure-Go alternative — **`modernc.org/sqlite`** — exposes the same
+`database/sql` driver interface (so `dalgo2sql` keeps working) and builds with
+`CGO_ENABLED=0`, restoring static/cross builds and dropping the C toolchain
+requirement.
+
+Open points to decide before migrating:
+
+- **Behavior/parity:** confirm the SQLite features we rely on (pragmas,
+  `sqlite_master` introspection, single-writer concurrency) behave identically.
+- **Performance:** `modernc.org/sqlite` is a transpilation of SQLite to Go;
+  benchmark hot paths vs the cgo driver for our workloads.
+- **Footprint:** it's a large module — weigh build size/time against the cgo
+  toolchain cost it removes.
+- **Driver name:** registers as `sqlite` (vs `sqlite3` for mattn) — audit any
+  hard-coded driver-name strings in consumers.
+
+If we migrate, the `cgo_enabled: true` flags added to this repo's and
+`datatug-cli`'s CI workflows can be removed.
