@@ -10,6 +10,8 @@ github.com/dal-go/dalgo v0.59.0 h1:IKJru3MmZ7DlR9BGc5zToNelHAg3rL7OFYgZrs9VRqI=
 github.com/dal-go/dalgo v0.59.0/go.mod h1:20tJJx7yt8qI8CZhUv1E/Q0HbIDRZXLVBU3JMzDpdvU=
 github.com/dal-go/dalgo v0.62.2 h1:rA+k9QCgS0UnZV0oonvDtA+QoM3Wj1doVBWo1higBTw=
 github.com/dal-go/dalgo v0.62.2/go.mod h1:wwaibB/UlzwAY1r9KZw5JCis+aroIwAu5WQJ/aoWZiU=
+github.com/dal-go/dalgo v0.62.6 h1:u+romV5VuXEiUoepklvZOuKpVxCjscG67K8p6eG3sEA=
+github.com/dal-go/dalgo v0.62.6/go.mod h1:NV0VJ+TQ6MXkz7uDPl5N3i7o/DWQBTftN5+HxGa3xQg=
 github.com/dal-go/dalgo2sql v0.6.11 h1:ePAhjvv4zAasL768VCJZodYKe4p+mOukPzXiJ1nxGmM=
 github.com/dal-go/dalgo2sql v0.6.11/go.mod h1:H8TA0u5ENJk/bOeuVtbadqxBnQEVKCiNOHZX6WU9gxo=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
@@ -36,6 +38,8 @@ github.com/mattn/go-sqlite3 v1.14.44 h1:3VSe+xafpbzsLbdr2AWlAZk9yRHiBhTBakioXaCK
 github.com/mattn/go-sqlite3 v1.14.44/go.mod h1:pjEuOr8IwzLJP2MfGeTb0A35jauH+C2kbHKBr7yXKVQ=
 github.com/mattn/go-sqlite3 v1.14.45 h1:6KA/spDguL3KV8rnybG7ezSaE4SeMR3KC9VbUoAQaIk=
 github.com/mattn/go-sqlite3 v1.14.45/go.mod h1:pjEuOr8IwzLJP2MfGeTb0A35jauH+C2kbHKBr7yXKVQ=
+github.com/mattn/go-sqlite3 v1.14.46 h1:ZfaNcYO/CGNMRxkN1vvG9qf+Y+uvXfgT9a6MlEw+HmU=
+github.com/mattn/go-sqlite3 v1.14.46/go.mod h1:6JTjA44L93a0QCyJef5YvlPoKXntQPjzWv5gtm9sB6w=
 github.com/microsoft/go-mssqldb v1.6.0 h1:mM3gYdVwEPFrlg/Dvr2DNVEgYFG7L42l+dGc67NNNpc=
 github.com/microsoft/go-mssqldb v1.6.0/go.mod h1:00mDtPbeQCRGC1HwOOR5K/gr30P1NcEG0vx6Kbv2aJU=
 github.com/mschoch/smat v0.2.0 h1:8imxQsjDm8yFEAVBe7azKmKSgzSkZXDuKkSq9374khM=
