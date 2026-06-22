@@ -9,7 +9,7 @@ go 1.24.0
 require (
 	github.com/dal-go/dalgo v0.62.7
 	github.com/dal-go/dalgo2sql v0.6.11
-	github.com/mattn/go-sqlite3 v1.14.46
+	github.com/mattn/go-sqlite3 v1.14.47
 )
 
 require (
