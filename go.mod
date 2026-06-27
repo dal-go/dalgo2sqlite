@@ -7,7 +7,7 @@ go 1.24.0
 //replace github.com/dal-go/dalgo2sql => ../dalgo2sql
 
 require (
-	github.com/dal-go/dalgo v0.62.7
+	github.com/dal-go/dalgo v0.62.8
 	github.com/dal-go/dalgo2sql v0.6.11
 	github.com/mattn/go-sqlite3 v1.14.47
 )
