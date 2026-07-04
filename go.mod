@@ -7,13 +7,13 @@ go 1.24.0
 //replace github.com/dal-go/dalgo2sql => ../dalgo2sql
 
 require (
-	github.com/dal-go/dalgo v0.62.8
+	github.com/dal-go/dalgo v0.62.9
 	github.com/dal-go/dalgo2sql v0.6.11
 	github.com/mattn/go-sqlite3 v1.14.47
 )
 
 require (
-	github.com/RoaringBitmap/roaring/v2 v2.18.2 // indirect
+	github.com/RoaringBitmap/roaring/v2 v2.19.0 // indirect
 	github.com/bits-and-blooms/bitset v1.24.4 // indirect
 	github.com/georgysavva/scany/v2 v2.1.4 // indirect
 	github.com/mschoch/smat v0.2.0 // indirect
