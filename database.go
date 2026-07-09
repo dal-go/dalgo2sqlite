@@ -20,7 +20,7 @@ import (
 	"github.com/dal-go/dalgo/dal"
 	"github.com/dal-go/dalgo2sql"
 
-	_ "github.com/mattn/go-sqlite3" // register the "sqlite3" driver
+	_ "modernc.org/sqlite" // register the "sqlite" driver (pure Go, CGO_ENABLED=0)
 )
 
 // Database is the dalgo2sqlite driver instance. It implements
@@ -40,12 +40,32 @@ type Database struct {
 }
 
 // NewDatabase opens (or creates) the SQLite file at dbPath using
-// github.com/mattn/go-sqlite3, pings to surface malformed-file errors
-// at construction time, wraps the *sql.DB via dalgo2sql.NewDatabase
-// for the dal.DB surface, and returns a *Database that satisfies
-// dal.DB + dal.ConcurrencyAware.
+// modernc.org/sqlite (pure Go, CGO_ENABLED=0), pings to surface
+// malformed-file errors at construction time, wraps the *sql.DB via
+// dalgo2sql.NewDatabase for the dal.DB surface, and returns a *Database
+// that satisfies dal.DB + dal.ConcurrencyAware.
+//
+// Use [NewDatabaseWithOptions] when you need to supply per-collection
+// primary-key metadata (required for Insert/Get/Delete with map[string]any data).
 func NewDatabase(dbPath string) (*Database, error) {
-	sqlDB, err := sql.Open("sqlite3", dbPath)
+	return NewDatabaseWithOptions(dbPath, dal.NewSchema(nil, nil), dalgo2sql.DbOptions{})
+}
+
+// NewDatabaseWithOptions is like [NewDatabase] but accepts a dal.Schema and
+// dalgo2sql.DbOptions so callers can configure per-collection primary-key
+// mappings required by Insert/Get/Delete operations.
+//
+// Example — open a DB whose "widgets" table has "id" as its primary key:
+//
+//	db, err := dalgo2sqlite.NewDatabaseWithOptions(path, dal.NewSchema(nil, nil),
+//	    dalgo2sql.DbOptions{
+//	        Recordsets: map[string]*dalgo2sql.Recordset{
+//	            "widgets": dalgo2sql.NewRecordset("widgets", dalgo2sql.Table,
+//	                []dal.FieldRef{dal.Field("id")}),
+//	        },
+//	    })
+func NewDatabaseWithOptions(dbPath string, schema dal.Schema, opts dalgo2sql.DbOptions) (*Database, error) {
+	sqlDB, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("dalgo2sqlite: sql.Open(%q): %w", dbPath, err)
 	}
@@ -53,7 +73,7 @@ func NewDatabase(dbPath string) (*Database, error) {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("dalgo2sqlite: PingContext(%q): %w", dbPath, pingErr)
 	}
-	innerDB := dalgo2sql.NewDatabase(sqlDB, dal.NewSchema(nil, nil), dalgo2sql.DbOptions{})
+	innerDB := dalgo2sql.NewDatabase(sqlDB, schema, opts)
 	return &Database{
 		innerDB: innerDB,
 		sqlDB:   sqlDB,

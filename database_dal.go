@@ -44,6 +44,8 @@ func (d *Database) ExecuteQueryToRecordsetReader(ctx context.Context, query dal.
 // --- extra write methods delegated from dalgo2sql ---
 
 // writeDB is the extended interface exposed by dalgo2sql's concrete type.
+// Note: UpdateRecord is intentionally excluded — dalgo2sql's database type
+// implements it only on transactions, not on the top-level database object.
 type writeDB interface {
 	Set(ctx context.Context, record dal.Record) error
 	SetMulti(ctx context.Context, records []dal.Record) error
@@ -53,7 +55,6 @@ type writeDB interface {
 	DeleteMulti(ctx context.Context, keys []*dal.Key) error
 	Update(ctx context.Context, key *dal.Key, updates []update.Update, preconditions ...dal.Precondition) error
 	UpdateMulti(ctx context.Context, keys []*dal.Key, updates []update.Update, preconditions ...dal.Precondition) error
-	UpdateRecord(ctx context.Context, record dal.Record, updates []update.Update, preconditions ...dal.Precondition) error
 }
 
 func (d *Database) Set(ctx context.Context, record dal.Record) error {
@@ -88,6 +89,9 @@ func (d *Database) UpdateMulti(ctx context.Context, keys []*dal.Key, updates []u
 	return d.innerDB.(writeDB).UpdateMulti(ctx, keys, updates, preconditions...)
 }
 
+// UpdateRecord is not supported at the database level by dalgo2sql; use
+// Update with an explicit key instead, or call UpdateRecord inside a
+// RunReadwriteTransaction where the transaction object does support it.
 func (d *Database) UpdateRecord(ctx context.Context, record dal.Record, updates []update.Update, preconditions ...dal.Precondition) error {
-	return d.innerDB.(writeDB).UpdateRecord(ctx, record, updates, preconditions...)
+	return dal.ErrNotImplementedYet
 }

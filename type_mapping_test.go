@@ -103,7 +103,7 @@ func TestDbschemaTypeFromSQLite(t *testing.T) {
 func TestTimeMarkers_RoundTrip(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	sqlDB, err := sql.Open("sqlite3", filepath.Join(dir, "markers.db"))
+	sqlDB, err := sql.Open("sqlite", filepath.Join(dir, "markers.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

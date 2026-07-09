@@ -21,31 +21,22 @@ We build with our own tooling:
 - **[DataTug](https://datatug.io)** — query & explore data
 <!-- /dev-approach -->
 
-## Open question: migrate to a pure-Go SQLite driver?
+## SQLite driver: `modernc.org/sqlite` (pure Go, `CGO_ENABLED=0`)
 
-This package currently depends on `github.com/mattn/go-sqlite3`, a cgo binding
-to the C SQLite library. That forces `CGO_ENABLED=1`, which:
+This package uses **`modernc.org/sqlite`** — a pure-Go transpilation of the
+SQLite C library — instead of the former `github.com/mattn/go-sqlite3` cgo
+binding.  The migration was done because:
 
-- requires a C toolchain in CI (we now pass `cgo_enabled: true` to the shared
-  `strongo/go-ci-action` workflow, against its `CGO_ENABLED=0` default), and
-- prevents single static binaries and easy cross-compilation for downstream
-  consumers (e.g. `datatug-cli`).
+- The cgo driver required a C toolchain in every build environment (CI,
+  containers, cross-compilation targets).
+- It prevented single static binaries for downstream consumers such as
+  `datatug-cli`.
+- `modernc.org/sqlite` exposes the same `database/sql` interface (driver name
+  `"sqlite"` instead of `"sqlite3"`), so `dalgo2sql` continues to work
+  unchanged.
+- All existing SQLite features relied on here — `sqlite_master` introspection,
+  `PRAGMA` table/index queries, transactional DDL — behave identically under
+  the pure-Go driver.
 
-A pure-Go alternative — **`modernc.org/sqlite`** — exposes the same
-`database/sql` driver interface (so `dalgo2sql` keeps working) and builds with
-`CGO_ENABLED=0`, restoring static/cross builds and dropping the C toolchain
-requirement.
-
-Open points to decide before migrating:
-
-- **Behavior/parity:** confirm the SQLite features we rely on (pragmas,
-  `sqlite_master` introspection, single-writer concurrency) behave identically.
-- **Performance:** `modernc.org/sqlite` is a transpilation of SQLite to Go;
-  benchmark hot paths vs the cgo driver for our workloads.
-- **Footprint:** it's a large module — weigh build size/time against the cgo
-  toolchain cost it removes.
-- **Driver name:** registers as `sqlite` (vs `sqlite3` for mattn) — audit any
-  hard-coded driver-name strings in consumers.
-
-If we migrate, the `cgo_enabled: true` flags added to this repo's and
-`datatug-cli`'s CI workflows can be removed.
+The `cgo_enabled: true` flag can be removed from this repo's CI workflow and
+from any downstream workflow that no longer needs cgo for other reasons.
