@@ -5,7 +5,7 @@ go 1.25.0
 //replace github.com/dal-go/dalgo => ../dalgo
 
 require (
-	github.com/dal-go/dalgo v0.62.9
+	github.com/dal-go/dalgo v0.62.10
 	github.com/dal-go/dalgo2sql v0.9.0
 	modernc.org/sqlite v1.53.0
 )
