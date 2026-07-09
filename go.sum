@@ -8,8 +8,8 @@ github.com/cockroachdb/cockroach-go/v2 v2.2.0 h1:/5znzg5n373N/3ESjHF5SMLxiW4RKB0
 github.com/cockroachdb/cockroach-go/v2 v2.2.0/go.mod h1:u3MiKYGupPPjkn3ozknpMUpxPaNLTFWAya419/zv6eI=
 github.com/dal-go/dalgo v0.62.9 h1:waLS0kC2kraEyG2U8PHTtniO6tBUgdA0Eo54r8qAomk=
 github.com/dal-go/dalgo v0.62.9/go.mod h1:afkKVmM5Nc7LyJXYKup+5lJwAK+qIT0PDbUcsHpF0AQ=
-github.com/dal-go/dalgo2sql v0.8.0 h1:+Nrpl3HkmuyP8qWYOfuV3dfD/dsP6wgdmR3RrB9KlQc=
-github.com/dal-go/dalgo2sql v0.8.0/go.mod h1:ih6hfRxEz7RX6R5u106QbLHUTUoBNOax+29Belk3HI4=
+github.com/dal-go/dalgo2sql v0.9.0 h1:khop7behY5KZyZYez/NE69qUYeMMxYzAW5yxUjog2dY=
+github.com/dal-go/dalgo2sql v0.9.0/go.mod h1:ih6hfRxEz7RX6R5u106QbLHUTUoBNOax+29Belk3HI4=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/dustin/go-humanize v1.0.1 h1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkpeCY=

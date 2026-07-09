@@ -6,7 +6,7 @@ go 1.25.0
 
 require (
 	github.com/dal-go/dalgo v0.62.9
-	github.com/dal-go/dalgo2sql v0.8.0
+	github.com/dal-go/dalgo2sql v0.9.0
 	modernc.org/sqlite v1.53.0
 )
 
