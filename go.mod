@@ -3,7 +3,7 @@ module github.com/dal-go/dalgo2sqlite
 go 1.25.0
 
 require (
-	github.com/dal-go/dalgo v0.63.1
+	github.com/dal-go/dalgo v0.63.2
 	github.com/dal-go/dalgo2sql v0.9.7
 	github.com/dal-go/record v0.1.0
 	modernc.org/sqlite v1.54.0
