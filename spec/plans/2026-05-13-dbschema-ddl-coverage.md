@@ -348,7 +348,8 @@ import (
 
 	"github.com/dal-go/dalgo/dal"
 	"github.com/dal-go/dalgo/recordset"
-	"github.com/dal-go/dalgo/update"
+	"github.com/dal-go/record"
+	"github.com/dal-go/record/update"
 )
 
 // The following methods delegate the full dal.DB surface to the
@@ -363,47 +364,47 @@ func (d *Database) RunReadwriteTransaction(ctx context.Context, f dal.RWTxWorker
 	return d.innerDB.RunReadwriteTransaction(ctx, f, opts...)
 }
 
-func (d *Database) Get(ctx context.Context, record dal.Record) error {
+func (d *Database) Get(ctx context.Context, record record.Record) error {
 	return d.innerDB.Get(ctx, record)
 }
 
-func (d *Database) GetMulti(ctx context.Context, records []dal.Record) error {
+func (d *Database) GetMulti(ctx context.Context, records []record.Record) error {
 	return d.innerDB.GetMulti(ctx, records)
 }
 
-func (d *Database) Exists(ctx context.Context, key *dal.Key) (bool, error) {
+func (d *Database) Exists(ctx context.Context, key *record.Key) (bool, error) {
 	return d.innerDB.Exists(ctx, key)
 }
 
-func (d *Database) Set(ctx context.Context, record dal.Record) error {
+func (d *Database) Set(ctx context.Context, record record.Record) error {
 	return d.innerDB.Set(ctx, record)
 }
 
-func (d *Database) SetMulti(ctx context.Context, records []dal.Record) error {
+func (d *Database) SetMulti(ctx context.Context, records []record.Record) error {
 	return d.innerDB.SetMulti(ctx, records)
 }
 
-func (d *Database) Insert(ctx context.Context, record dal.Record, opts ...dal.InsertOption) error {
+func (d *Database) Insert(ctx context.Context, record record.Record, opts ...dal.InsertOption) error {
 	return d.innerDB.Insert(ctx, record, opts...)
 }
 
-func (d *Database) Upsert(ctx context.Context, record dal.Record) error {
+func (d *Database) Upsert(ctx context.Context, record record.Record) error {
 	return d.innerDB.Upsert(ctx, record)
 }
 
-func (d *Database) Update(ctx context.Context, key *dal.Key, updates []update.Update, preconditions ...dal.Precondition) error {
+func (d *Database) Update(ctx context.Context, key *record.Key, updates []update.Update, preconditions ...dal.Precondition) error {
 	return d.innerDB.Update(ctx, key, updates, preconditions...)
 }
 
-func (d *Database) UpdateMulti(ctx context.Context, keys []*dal.Key, updates []update.Update, preconditions ...dal.Precondition) error {
+func (d *Database) UpdateMulti(ctx context.Context, keys []*record.Key, updates []update.Update, preconditions ...dal.Precondition) error {
 	return d.innerDB.UpdateMulti(ctx, keys, updates, preconditions...)
 }
 
-func (d *Database) Delete(ctx context.Context, key *dal.Key) error {
+func (d *Database) Delete(ctx context.Context, key *record.Key) error {
 	return d.innerDB.Delete(ctx, key)
 }
 
-func (d *Database) DeleteMulti(ctx context.Context, keys []*dal.Key) error {
+func (d *Database) DeleteMulti(ctx context.Context, keys []*record.Key) error {
 	return d.innerDB.DeleteMulti(ctx, keys)
 }
 
@@ -1052,6 +1053,7 @@ import (
 
 	"github.com/dal-go/dalgo/dal"
 	"github.com/dal-go/dalgo/dbschema"
+	"github.com/dal-go/record"
 	"github.com/dal-go/dalgo/ddl"
 )
 
@@ -1608,9 +1610,9 @@ import (
 )
 
 // ListCollections returns the user-defined tables in alphabetical
-// order. The parent *dal.Key is ignored — SQLite has no
+// order. The parent *record.Key is ignored — SQLite has no
 // catalog/schema hierarchy.
-func (d *Database) ListCollections(ctx context.Context, parent *dal.Key) ([]dal.CollectionRef, error) {
+func (d *Database) ListCollections(ctx context.Context, parent *record.Key) ([]dal.CollectionRef, error) {
 	_ = parent // ignored
 	rows, err := d.sqlDB.QueryContext(ctx,
 		`SELECT name FROM sqlite_master

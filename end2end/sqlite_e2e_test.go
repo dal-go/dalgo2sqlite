@@ -13,6 +13,7 @@ import (
 	"github.com/dal-go/dalgo/ddl"
 	"github.com/dal-go/dalgo2sql"
 	"github.com/dal-go/dalgo2sqlite"
+	"github.com/dal-go/record"
 )
 
 // TestE2E_CreateDescribeRoundTrip exercises the Feature's round-trip
@@ -143,15 +144,15 @@ func TestE2E_MapDataRoundTrip(t *testing.T) {
 
 	// 3. Insert two records using map[string]any data.
 	//    The key.ID becomes the PK column value; the map contains non-PK fields.
-	rec1 := dal.NewRecordWithData(
-		dal.NewKeyWithID("widgets", "w1"),
+	rec1 := record.NewRecordWithData(
+		record.NewKeyWithID("widgets", "w1"),
 		map[string]any{"name": "Sprocket", "price": "9.99"},
 	)
 	if err := db.Insert(ctx, rec1); err != nil {
 		t.Fatalf("Insert w1: %v", err)
 	}
-	rec2 := dal.NewRecordWithData(
-		dal.NewKeyWithID("widgets", "w2"),
+	rec2 := record.NewRecordWithData(
+		record.NewKeyWithID("widgets", "w2"),
 		map[string]any{"name": "Bolt", "price": "1.50"},
 	)
 	if err := db.Insert(ctx, rec2); err != nil {
@@ -169,7 +170,7 @@ func TestE2E_MapDataRoundTrip(t *testing.T) {
 	}
 	defer func() { _ = rr.Close() }()
 
-	var allRecords []dal.Record
+	var allRecords []record.Record
 	for {
 		rec, err := rr.Next()
 		if errors.Is(err, io.EOF) {
@@ -213,7 +214,7 @@ func TestE2E_MapDataRoundTrip(t *testing.T) {
 	// 6. db.Get() with map[string]any — previously broken, now fixed.
 	//    Get returns SELECT * so the PK column is also present in the map.
 	gotMap := make(map[string]any)
-	getRec := dal.NewRecordWithData(dal.NewKeyWithID("widgets", "w1"), gotMap)
+	getRec := record.NewRecordWithData(record.NewKeyWithID("widgets", "w1"), gotMap)
 	if err := db.Get(ctx, getRec); err != nil {
 		t.Fatalf("db.Get with map data: %v", err)
 	}
@@ -228,18 +229,18 @@ func TestE2E_MapDataRoundTrip(t *testing.T) {
 		t.Errorf("db.Get map id = %v, want w1", gotMap["id"])
 	}
 
-	// 7. db.Get() for a missing key must return dal.IsNotFound.
+	// 7. db.Get() for a missing key must return record.IsNotFound.
 	missingMap := make(map[string]any)
-	missingRec := dal.NewRecordWithData(dal.NewKeyWithID("widgets", "no-such-widget"), missingMap)
+	missingRec := record.NewRecordWithData(record.NewKeyWithID("widgets", "no-such-widget"), missingMap)
 	if notFoundErr := db.Get(ctx, missingRec); notFoundErr == nil {
 		t.Error("db.Get for missing key: expected not-found error, got nil")
-	} else if !dal.IsNotFound(notFoundErr) {
+	} else if !record.IsNotFound(notFoundErr) {
 		t.Errorf("db.Get for missing key: expected IsNotFound, got: %v", notFoundErr)
 	}
 
 	// 8. db.Set() upsert with map[string]any: insert new then update.
-	setRec := dal.NewRecordWithData(
-		dal.NewKeyWithID("widgets", "w3"),
+	setRec := record.NewRecordWithData(
+		record.NewKeyWithID("widgets", "w3"),
 		map[string]any{"name": "Gear", "price": "5.00"},
 	)
 	if err := db.Set(ctx, setRec); err != nil {
@@ -247,7 +248,7 @@ func TestE2E_MapDataRoundTrip(t *testing.T) {
 	}
 	// Verify via Get.
 	gotSet := make(map[string]any)
-	getSetRec := dal.NewRecordWithData(dal.NewKeyWithID("widgets", "w3"), gotSet)
+	getSetRec := record.NewRecordWithData(record.NewKeyWithID("widgets", "w3"), gotSet)
 	if err := db.Get(ctx, getSetRec); err != nil {
 		t.Fatalf("db.Get after Set (insert): %v", err)
 	}
@@ -255,15 +256,15 @@ func TestE2E_MapDataRoundTrip(t *testing.T) {
 		t.Errorf("name after Set insert = %v, want Gear", gotSet["name"])
 	}
 	// Now update via Set.
-	updRec := dal.NewRecordWithData(
-		dal.NewKeyWithID("widgets", "w3"),
+	updRec := record.NewRecordWithData(
+		record.NewKeyWithID("widgets", "w3"),
 		map[string]any{"name": "Big Gear", "price": "15.00"},
 	)
 	if err := db.Set(ctx, updRec); err != nil {
 		t.Fatalf("db.Set (update): %v", err)
 	}
 	gotUpd := make(map[string]any)
-	getUpdRec := dal.NewRecordWithData(dal.NewKeyWithID("widgets", "w3"), gotUpd)
+	getUpdRec := record.NewRecordWithData(record.NewKeyWithID("widgets", "w3"), gotUpd)
 	if err := db.Get(ctx, getUpdRec); err != nil {
 		t.Fatalf("db.Get after Set (update): %v", err)
 	}
