@@ -8,12 +8,13 @@ import (
 
 	"github.com/dal-go/dalgo/dal"
 	"github.com/dal-go/dalgo/dbschema"
+	"github.com/dal-go/record"
 )
 
 // ListCollections returns the user-defined tables in alphabetical
-// order. The parent *dal.Key is ignored — SQLite has no
+// order. The parent *record.Key is ignored — SQLite has no
 // catalog/schema hierarchy.
-func (d *Database) ListCollections(ctx context.Context, parent *dal.Key) ([]dal.CollectionRef, error) {
+func (d *Database) ListCollections(ctx context.Context, parent *record.Key) ([]dal.CollectionRef, error) {
 	_ = parent // ignored
 	rows, err := d.sqlDB.QueryContext(ctx,
 		`SELECT name FROM sqlite_master

@@ -94,7 +94,7 @@ The `dbschema.SchemaReader` interface in `dal-go/dalgo` (file `dbschema/reader.g
 
 #### REQ: list-collections
 
-`Database.ListCollections(ctx context.Context, parent *dal.Key) ([]dal.CollectionRef, error)` MUST return the user-defined tables in the database. The `parent *dal.Key` argument is ignored (SQLite has no catalog/schema hierarchy) — when non-nil it is treated as "everything visible" (same as nil). The result MUST come from `SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name` and be returned as a slice of `dal.CollectionRef` whose `Name` field is the table name. SQLite's internal tables (`sqlite_sequence`, `sqlite_stat1`, etc.) MUST be excluded.
+`Database.ListCollections(ctx context.Context, parent *record.Key) ([]dal.CollectionRef, error)` MUST return the user-defined tables in the database. The `parent *record.Key` argument is ignored (SQLite has no catalog/schema hierarchy) — when non-nil it is treated as "everything visible" (same as nil). The result MUST come from `SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name` and be returned as a slice of `dal.CollectionRef` whose `Name` field is the table name. SQLite's internal tables (`sqlite_sequence`, `sqlite_stat1`, etc.) MUST be excluded.
 
 #### REQ: describe-collection
 
