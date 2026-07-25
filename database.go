@@ -23,10 +23,14 @@ import (
 	_ "modernc.org/sqlite" // register the "sqlite" driver (pure Go, CGO_ENABLED=0)
 )
 
-// Database is the dalgo2sqlite driver instance. It implements
-// [dal.DB] by delegating to an inner [dal.DB] obtained from
-// [dalgo2sql.NewDatabase], and adds SQLite-specific dbschema, ddl,
-// and concurrency surfaces.
+// Database is the dalgo2sqlite driver instance. It implements [dal.DB] by
+// embedding a [dal.DB] obtained from [dalgo2sql.NewDatabase], and adds
+// SQLite-specific dbschema, ddl, and concurrency surfaces.
+//
+// The embedded dal.DB (rather than a named field) is what lets Database
+// satisfy dal.DB itself: dal.DB is sealed by an unexported marker method,
+// and embedding is the only way for that method to be promoted onto a
+// decorating type — see dal.NewDB's doc comment.
 //
 // Construct via [NewDatabase]. Database values are safe for
 // concurrent use only insofar as SQLite itself is — readers can be
@@ -34,9 +38,9 @@ import (
 type Database struct {
 	dal.NoConcurrency // SupportsConcurrentConnections() = false
 
-	innerDB dal.DB  // delegate for the dal.DB surface
-	sqlDB   *sql.DB // direct handle for DDL + PRAGMA queries
-	dbPath  string  // remembered for diagnostics
+	dal.DB         // delegate for the dal.DB surface
+	sqlDB  *sql.DB // direct handle for DDL + PRAGMA queries
+	dbPath string  // remembered for diagnostics
 }
 
 // NewDatabase opens (or creates) the SQLite file at dbPath using
@@ -75,9 +79,9 @@ func NewDatabaseWithOptions(dbPath string, schema dal.Schema, opts dalgo2sql.DbO
 	}
 	innerDB := dalgo2sql.NewDatabase(sqlDB, schema, opts)
 	return &Database{
-		innerDB: innerDB,
-		sqlDB:   sqlDB,
-		dbPath:  dbPath,
+		DB:     innerDB,
+		sqlDB:  sqlDB,
+		dbPath: dbPath,
 	}, nil
 }
 
@@ -91,8 +95,18 @@ func (d *Database) Close() error {
 	return d.sqlDB.Close()
 }
 
+// SupportsConcurrentConnections reports SQLite's own concurrency behaviour
+// (always false — see dal.NoConcurrency), not dalgo2sql's. An explicit
+// method is required here: dal.NoConcurrency and the embedded dal.DB (whose
+// Backend requirement embeds dal.ConcurrencyAware) both declare this method
+// at the same promotion depth, which Go otherwise treats as an ambiguous
+// selector.
+func (d *Database) SupportsConcurrentConnections() bool {
+	return d.NoConcurrency.SupportsConcurrentConnections()
+}
+
 // ID returns the driver-issued database ID (delegated to dalgo2sql).
-func (d *Database) ID() string { return d.innerDB.ID() }
+func (d *Database) ID() string { return d.DB.ID() }
 
 // Adapter returns the driver/version identifier.
 func (d *Database) Adapter() dal.Adapter {
@@ -100,7 +114,7 @@ func (d *Database) Adapter() dal.Adapter {
 }
 
 // Schema returns the dal-level Schema (delegated to dalgo2sql).
-func (d *Database) Schema() dal.Schema { return d.innerDB.Schema() }
+func (d *Database) Schema() dal.Schema { return d.DB.Schema() }
 
 // Version is the dalgo2sqlite package version. Updated by hand on
 // each release; consumed by Adapter.Version().
