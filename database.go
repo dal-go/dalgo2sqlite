@@ -59,6 +59,12 @@ func NewDatabase(dbPath string) (*Database, error) {
 // dalgo2sql.DbOptions so callers can configure per-collection primary-key
 // mappings required by Insert/Get/Delete operations.
 //
+// If opts.IsAlreadyExists is nil, it defaults to this package's
+// [IsAlreadyExists], so an Insert over an existing primary key or unique
+// index fails with an error satisfying record.IsAlreadyExists without any
+// extra configuration. Set opts.IsAlreadyExists explicitly to override that
+// default (e.g. with a func that also calls dalgo2sqlite.IsAlreadyExists).
+//
 // Example — open a DB whose "widgets" table has "id" as its primary key:
 //
 //	db, err := dalgo2sqlite.NewDatabaseWithOptions(path, dal.NewSchema(nil, nil),
@@ -69,6 +75,9 @@ func NewDatabase(dbPath string) (*Database, error) {
 //	        },
 //	    })
 func NewDatabaseWithOptions(dbPath string, schema dal.Schema, opts dalgo2sql.DbOptions) (*Database, error) {
+	if opts.IsAlreadyExists == nil {
+		opts.IsAlreadyExists = IsAlreadyExists
+	}
 	sqlDB, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("dalgo2sqlite: sql.Open(%q): %w", dbPath, err)
