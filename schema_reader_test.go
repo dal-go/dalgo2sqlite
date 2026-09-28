@@ -2,6 +2,8 @@ package dalgo2sqlite
 
 import (
 	"context"
+	"database/sql/driver"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -209,3 +211,284 @@ func TestDescribeCollection_DatetimeAndNumericTypes(t *testing.T) {
 		t.Errorf("total Precision = %+v, want (10,2)", *got.Fields[2].Precision)
 	}
 }
+
+func TestListCollections_ScanError(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	_, db := newHookDB(t, &driverHooks{
+		queryHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Rows, error, bool) {
+			if strings.Contains(q, "sqlite_master") {
+				return &mockRows{cols: []string{"name"}, rows: [][]driver.Value{{struct{}{}}}}, nil, true
+			}
+			return nil, nil, false
+		},
+	})
+	if _, err := db.ListCollections(ctx, nil); err == nil {
+		t.Fatal("expected scan error in ListCollections")
+	}
+}
+
+func TestDescribeCollection_EdgeCases(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db := openTestDB(t)
+
+	// Unrecognized SQLite type (line 113)
+	if _, err := db.sqlDB.ExecContext(ctx, "CREATE TABLE custom_types (id INT, weird FOOBAR)"); err != nil {
+		t.Fatal(err)
+	}
+	ref := dal.NewRootCollectionRef("custom_types", "")
+	if _, err := db.DescribeCollection(ctx, &ref); err == nil {
+		t.Fatal("expected error for unrecognized SQLite type FOOBAR")
+	}
+
+	// Reverse PK order for sortPKByOrder (lines 179-181)
+	if _, err := db.sqlDB.ExecContext(ctx, "CREATE TABLE multi_pk (a INT, b INT, PRIMARY KEY (b, a))"); err != nil {
+		t.Fatal(err)
+	}
+	multiRef := dal.NewRootCollectionRef("multi_pk", "")
+	def, err := db.DescribeCollection(ctx, &multiRef)
+	if err != nil {
+		t.Fatalf("DescribeCollection: %v", err)
+	}
+	if len(def.PrimaryKey) != 2 || string(def.PrimaryKey[0]) != "b" || string(def.PrimaryKey[1]) != "a" {
+		t.Errorf("expected PK [b, a], got %v", def.PrimaryKey)
+	}
+
+	// Origin == "pk" in ListIndexes (line 208)
+	if _, err := db.sqlDB.ExecContext(ctx, "CREATE TABLE pk_index_tbl (id TEXT PRIMARY KEY, val TEXT)"); err != nil {
+		t.Fatal(err)
+	}
+	pkIdxRef := dal.NewRootCollectionRef("pk_index_tbl", "")
+	indexes, err := db.ListIndexes(ctx, &pkIdxRef)
+	if err != nil {
+		t.Fatalf("ListIndexes: %v", err)
+	}
+	if len(indexes) != 0 {
+		t.Errorf("expected 0 user indexes for pk_index_tbl, got %d", len(indexes))
+	}
+}
+
+func TestDescribeCollection_Errors(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	ref := dal.NewRootCollectionRef("users", "")
+
+	t.Run("probe_error", func(t *testing.T) {
+		_, db := newHookDB(t, &driverHooks{
+			queryHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Rows, error, bool) {
+				if strings.Contains(q, "SELECT name FROM sqlite_master") {
+					return nil, errors.New("probe failed"), true
+				}
+				return nil, nil, false
+			},
+		})
+		if _, err := db.DescribeCollection(ctx, &ref); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("pragma_table_info_query_error", func(t *testing.T) {
+		_, db := newHookDB(t, &driverHooks{
+			queryHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Rows, error, bool) {
+				if strings.Contains(q, "pragma_table_info") {
+					return nil, errors.New("pragma_table_info failed"), true
+				}
+				return nil, nil, false
+			},
+		})
+		if _, err := db.sqlDB.ExecContext(ctx, "CREATE TABLE users (id INT)"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.DescribeCollection(ctx, &ref); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("time_markers_error", func(t *testing.T) {
+		_, db := newHookDB(t, &driverHooks{
+			queryHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Rows, error, bool) {
+				if strings.Contains(q, "SELECT column_name FROM") {
+					return nil, errors.New("read time markers failed"), true
+				}
+				return nil, nil, false
+			},
+		})
+		if _, err := db.sqlDB.ExecContext(ctx, "CREATE TABLE users (id INT)"); err != nil {
+			t.Fatal(err)
+		}
+		_ = ensureTimeMarkerTable(ctx, db.sqlDB)
+		if _, err := db.DescribeCollection(ctx, &ref); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("pragma_table_info_scan_error", func(t *testing.T) {
+		_, db := newHookDB(t, &driverHooks{
+			queryHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Rows, error, bool) {
+				if strings.Contains(q, "pragma_table_info") {
+					return &mockRows{
+						cols: []string{"name", "type", "notnull", "dflt_value", "pk"},
+						rows: [][]driver.Value{{struct{}{}}},
+					}, nil, true
+				}
+				return nil, nil, false
+			},
+		})
+		if _, err := db.sqlDB.ExecContext(ctx, "CREATE TABLE users (id INT)"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.DescribeCollection(ctx, &ref); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("pragma_table_info_rows_err", func(t *testing.T) {
+		_, db := newHookDB(t, &driverHooks{
+			queryHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Rows, error, bool) {
+				if strings.Contains(q, "pragma_table_info") {
+					return &mockRows{
+						cols:    []string{"name", "type", "notnull", "dflt_value", "pk"},
+						nextErr: errors.New("iteration failed"),
+					}, nil, true
+				}
+				return nil, nil, false
+			},
+		})
+		if _, err := db.sqlDB.ExecContext(ctx, "CREATE TABLE users (id INT)"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.DescribeCollection(ctx, &ref); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("list_indexes_error", func(t *testing.T) {
+		_, db := newHookDB(t, &driverHooks{
+			queryHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Rows, error, bool) {
+				if strings.Contains(q, "pragma_index_list") {
+					return nil, errors.New("index list failed"), true
+				}
+				return nil, nil, false
+			},
+		})
+		if _, err := db.sqlDB.ExecContext(ctx, "CREATE TABLE users (id INT)"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.DescribeCollection(ctx, &ref); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("read_foreign_keys_error", func(t *testing.T) {
+		_, db := newHookDB(t, &driverHooks{
+			queryHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Rows, error, bool) {
+				if strings.Contains(q, "PRAGMA foreign_keys") {
+					return nil, errors.New("foreign keys failed"), true
+				}
+				return nil, nil, false
+			},
+		})
+		if _, err := db.sqlDB.ExecContext(ctx, "CREATE TABLE users (id INT)"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.DescribeCollection(ctx, &ref); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("table_has_autoincrement_error", func(t *testing.T) {
+		_, db := newHookDB(t, &driverHooks{
+			queryHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Rows, error, bool) {
+				if strings.Contains(q, "SELECT sql FROM sqlite_master") {
+					return nil, errors.New("sql probe failed"), true
+				}
+				return nil, nil, false
+			},
+		})
+		if _, err := tableHasAutoIncrement(ctx, db.sqlDB, "users"); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+}
+
+func TestListIndexes_Errors(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	ref := dal.NewRootCollectionRef("users", "")
+
+	t.Run("pragma_index_list_query_error", func(t *testing.T) {
+		_, db := newHookDB(t, &driverHooks{
+			queryHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Rows, error, bool) {
+				if strings.Contains(q, "pragma_index_list") {
+					return nil, errors.New("index list query failed"), true
+				}
+				return nil, nil, false
+			},
+		})
+		if _, err := db.ListIndexes(ctx, &ref); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("pragma_index_list_scan_error", func(t *testing.T) {
+		_, db := newHookDB(t, &driverHooks{
+			queryHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Rows, error, bool) {
+				if strings.Contains(q, "pragma_index_list") {
+					return &mockRows{
+						cols: []string{"name", "unique", "origin"},
+						rows: [][]driver.Value{{struct{}{}}},
+					}, nil, true
+				}
+				return nil, nil, false
+			},
+		})
+		if _, err := db.ListIndexes(ctx, &ref); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("read_index_fields_query_error", func(t *testing.T) {
+		_, db := newHookDB(t, &driverHooks{
+			queryHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Rows, error, bool) {
+				if strings.Contains(q, "pragma_index_info") {
+					return nil, errors.New("index info query failed"), true
+				}
+				return nil, nil, false
+			},
+		})
+		if _, err := db.sqlDB.ExecContext(ctx, "CREATE TABLE users (id INT, email TEXT)"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.sqlDB.ExecContext(ctx, "CREATE INDEX ix_email ON users (email)"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.ListIndexes(ctx, &ref); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("read_index_fields_scan_error", func(t *testing.T) {
+		_, db := newHookDB(t, &driverHooks{
+			queryHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Rows, error, bool) {
+				if strings.Contains(q, "pragma_index_info") {
+					return &mockRows{
+						cols: []string{"name"},
+						rows: [][]driver.Value{{struct{}{}}},
+					}, nil, true
+				}
+				return nil, nil, false
+			},
+		})
+		if _, err := db.sqlDB.ExecContext(ctx, "CREATE TABLE users (id INT, email TEXT)"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.sqlDB.ExecContext(ctx, "CREATE INDEX ix_email ON users (email)"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.ListIndexes(ctx, &ref); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+}
+

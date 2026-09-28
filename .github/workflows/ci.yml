@@ -23,3 +23,5 @@ jobs:
     with:
       # Uses modernc.org/sqlite (pure Go) — no C toolchain needed.
       cgo_enabled: false
+      code_coverage: true
+      min_test_coverage_percent: 100

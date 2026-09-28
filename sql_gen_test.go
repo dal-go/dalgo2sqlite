@@ -178,3 +178,55 @@ func TestBuildDropIndexSQL(t *testing.T) {
 		t.Errorf("got %q, want %q", gotIf, wantIf)
 	}
 }
+
+func TestBuildCreateIndexSQL_ValidationAndOptions(t *testing.T) {
+	t.Parallel()
+	// Name empty
+	if _, err := buildCreateIndexSQL(dbschema.IndexDef{}, ddl.Options{}); err == nil {
+		t.Error("expected error for empty index name")
+	}
+	// Collection empty
+	if _, err := buildCreateIndexSQL(dbschema.IndexDef{Name: "idx"}, ddl.Options{}); err == nil {
+		t.Error("expected error for empty collection")
+	}
+	// Fields empty
+	if _, err := buildCreateIndexSQL(dbschema.IndexDef{Name: "idx", Collection: "users"}, ddl.Options{}); err == nil {
+		t.Error("expected error for empty fields")
+	}
+	// IfNotExists
+	got, err := buildCreateIndexSQL(dbschema.IndexDef{
+		Name: "ix_email", Collection: "users", Fields: []dal.FieldName{"email"},
+	}, ddl.ResolveOptions(ddl.IfNotExists()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "IF NOT EXISTS") {
+		t.Errorf("expected IF NOT EXISTS in %q", got)
+	}
+}
+
+func TestBuildAlterTableAddColumnSQL_InvalidType(t *testing.T) {
+	t.Parallel()
+	_, err := buildAlterTableAddColumnSQL("users", dbschema.FieldDef{
+		Name: dal.FieldName("x"), Type: dbschema.Null,
+	})
+	if err == nil {
+		t.Fatal("expected error for invalid type in buildAlterTableAddColumnSQL")
+	}
+}
+
+func TestFieldHasAutoIncIntPK_False(t *testing.T) {
+	t.Parallel()
+	c := dbschema.CollectionDef{
+		Fields: []dbschema.FieldDef{
+			{Name: dal.FieldName("name"), Type: dbschema.String},
+		},
+	}
+	if fieldHasAutoIncIntPK(c, dal.FieldName("name")) {
+		t.Error("expected false for string field")
+	}
+	if fieldHasAutoIncIntPK(c, dal.FieldName("missing")) {
+		t.Error("expected false for missing field")
+	}
+}
+

@@ -74,11 +74,15 @@ func NewDatabase(dbPath string) (*Database, error) {
 //	                []dal.FieldRef{dal.Field("id")}),
 //	        },
 //	    })
+var sqlOpen = func(dbPath string) (*sql.DB, error) {
+	return sql.Open("sqlite", dbPath)
+}
+
 func NewDatabaseWithOptions(dbPath string, schema dal.Schema, opts dalgo2sql.DbOptions) (*Database, error) {
 	if opts.IsAlreadyExists == nil {
 		opts.IsAlreadyExists = IsAlreadyExists
 	}
-	sqlDB, err := sql.Open("sqlite", dbPath)
+	sqlDB, err := sqlOpen(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("dalgo2sqlite: sql.Open(%q): %w", dbPath, err)
 	}

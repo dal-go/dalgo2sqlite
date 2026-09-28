@@ -2,6 +2,9 @@ package dalgo2sqlite
 
 import (
 	"context"
+	"database/sql/driver"
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/dal-go/dalgo/dal"
@@ -86,3 +89,106 @@ func TestListReferrers(t *testing.T) {
 		}
 	}
 }
+
+func TestListConstraints_Errors(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	ref := dal.NewRootCollectionRef("users", "")
+
+	t.Run("pk_probe_error", func(t *testing.T) {
+		_, db := newHookDB(t, &driverHooks{
+			queryHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Rows, error, bool) {
+				if strings.Contains(q, "pragma_table_info") {
+					return nil, errors.New("pk probe failed"), true
+				}
+				return nil, nil, false
+			},
+		})
+		if _, err := db.ListConstraints(ctx, &ref); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("fk_probe_error", func(t *testing.T) {
+		_, db := newHookDB(t, &driverHooks{
+			queryHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Rows, error, bool) {
+				if strings.Contains(q, "pragma_foreign_key_list") {
+					return nil, errors.New("fk probe failed"), true
+				}
+				return nil, nil, false
+			},
+		})
+		if _, err := db.ListConstraints(ctx, &ref); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("fk_scan_error", func(t *testing.T) {
+		_, db := newHookDB(t, &driverHooks{
+			queryHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Rows, error, bool) {
+				if strings.Contains(q, "pragma_foreign_key_list") {
+					return &mockRows{cols: []string{"id"}, rows: [][]driver.Value{{struct{}{}}}}, nil, true
+				}
+				return nil, nil, false
+			},
+		})
+		if _, err := db.ListConstraints(ctx, &ref); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+}
+
+func TestListReferrers_Errors(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	ref := dal.NewRootCollectionRef("users", "")
+
+	t.Run("list_collections_error", func(t *testing.T) {
+		_, db := newHookDB(t, &driverHooks{
+			queryHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Rows, error, bool) {
+				if strings.Contains(q, "sqlite_master") {
+					return nil, errors.New("list collections failed"), true
+				}
+				return nil, nil, false
+			},
+		})
+		if _, err := db.ListReferrers(ctx, &ref); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("referrer_fields_query_error", func(t *testing.T) {
+		_, db := newHookDB(t, &driverHooks{
+			queryHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Rows, error, bool) {
+				if strings.Contains(q, "pragma_foreign_key_list") {
+					return nil, errors.New("referrer fields failed"), true
+				}
+				return nil, nil, false
+			},
+		})
+		if _, err := db.sqlDB.ExecContext(ctx, "CREATE TABLE orders (id INT)"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.ListReferrers(ctx, &ref); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("referrer_fields_scan_error", func(t *testing.T) {
+		_, db := newHookDB(t, &driverHooks{
+			queryHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Rows, error, bool) {
+				if strings.Contains(q, "pragma_foreign_key_list") {
+					return &mockRows{cols: []string{"from"}, rows: [][]driver.Value{{struct{}{}}}}, nil, true
+				}
+				return nil, nil, false
+			},
+		})
+		if _, err := db.sqlDB.ExecContext(ctx, "CREATE TABLE orders (id INT)"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.ListReferrers(ctx, &ref); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+}
+

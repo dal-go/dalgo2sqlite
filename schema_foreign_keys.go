@@ -55,9 +55,6 @@ func readForeignKeys(ctx context.Context, db *sql.DB, table string) ([]dbschema.
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("dalgo2sqlite: foreign key rows: %w", err)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, fmt.Errorf("dalgo2sqlite: close foreign key rows: %w", err)
-	}
 	for i := range keys {
 		if len(keys[i].ReferencedFields) != 0 {
 			continue

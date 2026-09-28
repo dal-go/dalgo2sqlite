@@ -2,6 +2,9 @@ package dalgo2sqlite
 
 import (
 	"context"
+	"database/sql/driver"
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/dal-go/dalgo/dal"
@@ -249,3 +252,441 @@ func TestAlterCollection_ModifyFieldPreservesData(t *testing.T) {
 		t.Errorf("expected 3 rows preserved through migration dance, got %d", count)
 	}
 }
+
+func TestCreateCollection_EdgeCasesAndErrors(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	t.Run("invalid_field_type", func(t *testing.T) {
+		db := openTestDB(t)
+		c := dbschema.CollectionDef{
+			Name:   "users",
+			Fields: []dbschema.FieldDef{{Name: "bad", Type: dbschema.Null}},
+		}
+		if err := db.CreateCollection(ctx, c); err == nil {
+			t.Fatal("expected error for invalid field type in CreateCollection")
+		}
+	})
+
+	t.Run("index_empty_name", func(t *testing.T) {
+		db := openTestDB(t)
+		c := dbschema.CollectionDef{
+			Name:   "users",
+			Fields: []dbschema.FieldDef{{Name: "id", Type: dbschema.Int}},
+			Indexes: []dbschema.IndexDef{
+				{Name: "", Fields: []dal.FieldName{"id"}},
+			},
+		}
+		if err := db.CreateCollection(ctx, c); err == nil {
+			t.Fatal("expected error for empty index name")
+		}
+	})
+
+	t.Run("index_empty_collection_resolved", func(t *testing.T) {
+		db := openTestDB(t)
+		c := dbschema.CollectionDef{
+			Name:   "users",
+			Fields: []dbschema.FieldDef{{Name: "id", Type: dbschema.Int}},
+			Indexes: []dbschema.IndexDef{
+				{Name: "ix_id", Collection: "", Fields: []dal.FieldName{"id"}},
+			},
+		}
+		if err := db.CreateCollection(ctx, c); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("create_table_exec_error", func(t *testing.T) {
+		_, db := newHookDB(t, &driverHooks{
+			execHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Result, error, bool) {
+				if strings.HasPrefix(q, "CREATE TABLE users") {
+					return nil, errors.New("create table failed"), true
+				}
+				return nil, nil, false
+			},
+		})
+		c := dbschema.CollectionDef{
+			Name:   "users",
+			Fields: []dbschema.FieldDef{{Name: "id", Type: dbschema.Int}},
+		}
+		if err := db.CreateCollection(ctx, c); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("time_marker_table_error", func(t *testing.T) {
+		_, db := newHookDB(t, &driverHooks{
+			execHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Result, error, bool) {
+				if strings.Contains(q, "CREATE TABLE IF NOT EXISTS _dalgo_time_columns") {
+					return nil, errors.New("marker table failed"), true
+				}
+				return nil, nil, false
+			},
+		})
+		c := dbschema.CollectionDef{
+			Name:   "users",
+			Fields: []dbschema.FieldDef{{Name: "created_at", Type: dbschema.Time}},
+		}
+		if err := db.CreateCollection(ctx, c); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("time_marker_insert_error", func(t *testing.T) {
+		_, db := newHookDB(t, &driverHooks{
+			execHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Result, error, bool) {
+				if strings.Contains(q, "INSERT OR IGNORE INTO _dalgo_time_columns") {
+					return nil, errors.New("marker insert failed"), true
+				}
+				return nil, nil, false
+			},
+		})
+		c := dbschema.CollectionDef{
+			Name:   "users",
+			Fields: []dbschema.FieldDef{{Name: "created_at", Type: dbschema.Time}},
+		}
+		if err := db.CreateCollection(ctx, c); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+}
+
+func TestInTx_Errors(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	t.Run("begin_tx_error", func(t *testing.T) {
+		_, db := newHookDB(t, &driverHooks{
+			beginHook: func(ctx context.Context, opts driver.TxOptions) (driver.Tx, error, bool) {
+				return nil, errors.New("begin failed"), true
+			},
+		})
+		if err := db.DropCollection(ctx, "users"); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("commit_tx_error", func(t *testing.T) {
+		_, db := newHookDB(t, &driverHooks{
+			commitHook: func() (error, bool) {
+				return errors.New("commit failed"), true
+			},
+		})
+		if _, err := db.sqlDB.ExecContext(ctx, "CREATE TABLE users (id INT)"); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.DropCollection(ctx, "users"); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+}
+
+func TestDropCollection_Error(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	_, db := newHookDB(t, &driverHooks{
+		execHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Result, error, bool) {
+			if strings.HasPrefix(q, "DROP TABLE") {
+				return nil, errors.New("drop failed"), true
+			}
+			return nil, nil, false
+		},
+	})
+	if err := db.DropCollection(ctx, "users"); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestAlterCollection_ErrorsAndEdgeCases(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	t.Run("op_apply_error", func(t *testing.T) {
+		db := openTestDB(t)
+		if err := db.AlterCollection(ctx, "users", ddl.AddField(dbschema.FieldDef{Name: "bad", Type: dbschema.Null})); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("add_field_exec_error", func(t *testing.T) {
+		_, db := newHookDB(t, &driverHooks{
+			execHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Result, error, bool) {
+				if strings.Contains(q, "ADD COLUMN") {
+					return nil, errors.New("add column failed"), true
+				}
+				return nil, nil, false
+			},
+		})
+		if _, err := db.sqlDB.ExecContext(ctx, "CREATE TABLE users (id INT)"); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.AlterCollection(ctx, "users", ddl.AddField(dbschema.FieldDef{Name: "age", Type: dbschema.Int})); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("add_field_time_marker_table_error", func(t *testing.T) {
+		_, db := newHookDB(t, &driverHooks{
+			execHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Result, error, bool) {
+				if strings.Contains(q, "CREATE TABLE IF NOT EXISTS _dalgo_time_columns") {
+					return nil, errors.New("marker table failed"), true
+				}
+				return nil, nil, false
+			},
+		})
+		if _, err := db.sqlDB.ExecContext(ctx, "CREATE TABLE users (id INT)"); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.AlterCollection(ctx, "users", ddl.AddField(dbschema.FieldDef{Name: "ts", Type: dbschema.Time})); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("add_field_time_marker_insert_error", func(t *testing.T) {
+		_, db := newHookDB(t, &driverHooks{
+			execHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Result, error, bool) {
+				if strings.Contains(q, "INSERT OR IGNORE INTO _dalgo_time_columns") {
+					return nil, errors.New("marker insert failed"), true
+				}
+				return nil, nil, false
+			},
+		})
+		if _, err := db.sqlDB.ExecContext(ctx, "CREATE TABLE users (id INT)"); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.AlterCollection(ctx, "users", ddl.AddField(dbschema.FieldDef{Name: "ts", Type: dbschema.Time})); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("add_field_time_happy_path", func(t *testing.T) {
+		db := openTestDB(t)
+		if _, err := db.sqlDB.ExecContext(ctx, "CREATE TABLE users (id INT)"); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.AlterCollection(ctx, "users", ddl.AddField(dbschema.FieldDef{Name: "ts", Type: dbschema.Time})); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("drop_field_exec_error", func(t *testing.T) {
+		_, db := newHookDB(t, &driverHooks{
+			execHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Result, error, bool) {
+				if strings.Contains(q, "DROP COLUMN") {
+					return nil, errors.New("drop column failed"), true
+				}
+				return nil, nil, false
+			},
+		})
+		if _, err := db.sqlDB.ExecContext(ctx, "CREATE TABLE users (id INT, age INT)"); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.AlterCollection(ctx, "users", ddl.DropField(dal.FieldName("age"))); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("rename_field_exec_error", func(t *testing.T) {
+		_, db := newHookDB(t, &driverHooks{
+			execHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Result, error, bool) {
+				if strings.Contains(q, "RENAME COLUMN") {
+					return nil, errors.New("rename column failed"), true
+				}
+				return nil, nil, false
+			},
+		})
+		if _, err := db.sqlDB.ExecContext(ctx, "CREATE TABLE users (id INT, email TEXT)"); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.AlterCollection(ctx, "users", ddl.RenameField(dal.FieldName("email"), dal.FieldName("mail"))); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("add_index_empty_collection", func(t *testing.T) {
+		db := openTestDB(t)
+		if _, err := db.sqlDB.ExecContext(ctx, "CREATE TABLE users (id INT, email TEXT)"); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.AlterCollection(ctx, "users", ddl.AddIndex(dbschema.IndexDef{
+			Name: "ix_mail", Collection: "", Fields: []dal.FieldName{"email"},
+		})); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("add_index_invalid_index", func(t *testing.T) {
+		db := openTestDB(t)
+		if _, err := db.sqlDB.ExecContext(ctx, "CREATE TABLE users (id INT, email TEXT)"); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.AlterCollection(ctx, "users", ddl.AddIndex(dbschema.IndexDef{
+			Name: "", Fields: []dal.FieldName{"email"},
+		})); err == nil {
+			t.Fatal("expected error for empty index name")
+		}
+	})
+
+	t.Run("add_index_exec_error", func(t *testing.T) {
+		_, db := newHookDB(t, &driverHooks{
+			execHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Result, error, bool) {
+				if strings.Contains(q, "CREATE INDEX") {
+					return nil, errors.New("create index failed"), true
+				}
+				return nil, nil, false
+			},
+		})
+		if _, err := db.sqlDB.ExecContext(ctx, "CREATE TABLE users (id INT, email TEXT)"); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.AlterCollection(ctx, "users", ddl.AddIndex(dbschema.IndexDef{
+			Name: "ix_email", Fields: []dal.FieldName{"email"},
+		})); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("drop_index_exec_error", func(t *testing.T) {
+		_, db := newHookDB(t, &driverHooks{
+			execHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Result, error, bool) {
+				if strings.Contains(q, "DROP INDEX") {
+					return nil, errors.New("drop index failed"), true
+				}
+				return nil, nil, false
+			},
+		})
+		if err := db.AlterCollection(ctx, "users", ddl.DropIndex("ix_email")); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("modify_field_introspect_error", func(t *testing.T) {
+		_, db := newHookDB(t, &driverHooks{
+			queryHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Rows, error, bool) {
+				if strings.Contains(q, "pragma_table_info") {
+					return nil, errors.New("table info failed"), true
+				}
+				return nil, nil, false
+			},
+		})
+		if err := db.AlterCollection(ctx, "users", ddl.ModifyField(dal.FieldName("email"), dbschema.FieldDef{Type: dbschema.String})); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("modify_field_column_not_found", func(t *testing.T) {
+		db := openTestDB(t)
+		if _, err := db.sqlDB.ExecContext(ctx, "CREATE TABLE users (id INT PRIMARY KEY, email TEXT)"); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.AlterCollection(ctx, "users", ddl.ModifyField(dal.FieldName("missing"), dbschema.FieldDef{Type: dbschema.String})); err == nil {
+			t.Fatal("expected error for nonexistent column")
+		}
+	})
+
+	t.Run("modify_field_build_create_table_error", func(t *testing.T) {
+		db := openTestDB(t)
+		if _, err := db.sqlDB.ExecContext(ctx, "CREATE TABLE users (id INT PRIMARY KEY, email TEXT)"); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.AlterCollection(ctx, "users", ddl.ModifyField(dal.FieldName("email"), dbschema.FieldDef{Type: dbschema.Null})); err == nil {
+			t.Fatal("expected error for invalid type")
+		}
+	})
+
+	t.Run("modify_field_create_new_error", func(t *testing.T) {
+		_, db := newHookDB(t, &driverHooks{
+			execHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Result, error, bool) {
+				if strings.Contains(q, "CREATE TABLE users_new") {
+					return nil, errors.New("create new failed"), true
+				}
+				return nil, nil, false
+			},
+		})
+		if _, err := db.sqlDB.ExecContext(ctx, "CREATE TABLE users (id INT PRIMARY KEY, email TEXT)"); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.AlterCollection(ctx, "users", ddl.ModifyField(dal.FieldName("email"), dbschema.FieldDef{Type: dbschema.String})); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("modify_field_copy_data_error", func(t *testing.T) {
+		_, db := newHookDB(t, &driverHooks{
+			execHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Result, error, bool) {
+				if strings.Contains(q, "INSERT INTO users_new") {
+					return nil, errors.New("copy data failed"), true
+				}
+				return nil, nil, false
+			},
+		})
+		if _, err := db.sqlDB.ExecContext(ctx, "CREATE TABLE users (id INT PRIMARY KEY, email TEXT)"); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.AlterCollection(ctx, "users", ddl.ModifyField(dal.FieldName("email"), dbschema.FieldDef{Type: dbschema.String})); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("modify_field_drop_original_error", func(t *testing.T) {
+		_, db := newHookDB(t, &driverHooks{
+			execHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Result, error, bool) {
+				if q == "DROP TABLE users" {
+					return nil, errors.New("drop original failed"), true
+				}
+				return nil, nil, false
+			},
+		})
+		if _, err := db.sqlDB.ExecContext(ctx, "CREATE TABLE users (id INT PRIMARY KEY, email TEXT)"); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.AlterCollection(ctx, "users", ddl.ModifyField(dal.FieldName("email"), dbschema.FieldDef{Type: dbschema.String})); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("modify_field_rename_error", func(t *testing.T) {
+		_, db := newHookDB(t, &driverHooks{
+			execHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Result, error, bool) {
+				if strings.Contains(q, "ALTER TABLE users_new RENAME TO users") {
+					return nil, errors.New("rename failed"), true
+				}
+				return nil, nil, false
+			},
+		})
+		if _, err := db.sqlDB.ExecContext(ctx, "CREATE TABLE users (id INT PRIMARY KEY, email TEXT)"); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.AlterCollection(ctx, "users", ddl.ModifyField(dal.FieldName("email"), dbschema.FieldDef{Type: dbschema.String})); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("modify_field_read_collection_scan_error", func(t *testing.T) {
+		_, db := newHookDB(t, &driverHooks{
+			queryHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Rows, error, bool) {
+				if strings.Contains(q, "pragma_table_info") {
+					return &mockRows{
+						cols: []string{"name", "type", "notnull", "pk"},
+						rows: [][]driver.Value{{struct{}{}}},
+					}, nil, true
+				}
+				return nil, nil, false
+			},
+		})
+		if err := db.AlterCollection(ctx, "users", ddl.ModifyField(dal.FieldName("email"), dbschema.FieldDef{Type: dbschema.String})); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("modify_field_with_unknown_type_and_multi_pk", func(t *testing.T) {
+		db := openTestDB(t)
+		if _, err := db.sqlDB.ExecContext(ctx, "CREATE TABLE users (a INT, b INT, email TEXT, custom FOOBAR, PRIMARY KEY (b, a))"); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.AlterCollection(ctx, "users", ddl.ModifyField(dal.FieldName("email"), dbschema.FieldDef{Type: dbschema.String, Nullable: false})); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+}
+

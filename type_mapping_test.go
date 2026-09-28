@@ -3,7 +3,10 @@ package dalgo2sqlite
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
+	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/dal-go/dalgo/dbschema"
@@ -145,3 +148,132 @@ func TestTimeMarkers_RoundTrip(t *testing.T) {
 		t.Errorf("readTimeMarkers after drop = %v, want empty", after)
 	}
 }
+
+func TestSqliteTypeFor_Unknown(t *testing.T) {
+	t.Parallel()
+	if _, err := sqliteTypeFor(dbschema.Type(127)); err == nil {
+		t.Error("expected error for unknown dbschema.Type")
+	}
+}
+
+func TestTimeMarkers_AbsentTable(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	sqlDB, err := sql.Open("sqlite", filepath.Join(dir, "nomarkers.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = sqlDB.Close() }()
+	ctx := context.Background()
+
+	if err := dropTimeMarkers(ctx, sqlDB, "events"); err != nil {
+		t.Fatalf("dropTimeMarkers on absent table returned error: %v", err)
+	}
+}
+
+func TestTimeMarkers_Errors(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	t.Run("ensureTimeMarkerTable_error", func(t *testing.T) {
+		sqlDB, _ := newHookDB(t, &driverHooks{
+			execHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Result, error, bool) {
+				if strings.Contains(q, timeMarkerTable) {
+					return nil, errors.New("ensure error"), true
+				}
+				return nil, nil, false
+			},
+		})
+		if err := ensureTimeMarkerTable(ctx, sqlDB); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("writeTimeMarker_error", func(t *testing.T) {
+		sqlDB, _ := newHookDB(t, &driverHooks{
+			execHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Result, error, bool) {
+				if strings.Contains(q, "INSERT OR IGNORE INTO") {
+					return nil, errors.New("insert error"), true
+				}
+				return nil, nil, false
+			},
+		})
+		if err := writeTimeMarker(ctx, sqlDB, "tbl", "col"); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("readTimeMarkers_probe_error", func(t *testing.T) {
+		sqlDB, _ := newHookDB(t, &driverHooks{
+			queryHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Rows, error, bool) {
+				if strings.Contains(q, "SELECT name FROM sqlite_master") {
+					return nil, errors.New("probe error"), true
+				}
+				return nil, nil, false
+			},
+		})
+		if _, err := readTimeMarkers(ctx, sqlDB, "tbl"); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("readTimeMarkers_query_error", func(t *testing.T) {
+		sqlDB, _ := newHookDB(t, &driverHooks{
+			queryHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Rows, error, bool) {
+				if strings.Contains(q, "SELECT column_name FROM") {
+					return nil, errors.New("query error"), true
+				}
+				return nil, nil, false
+			},
+		})
+		_ = ensureTimeMarkerTable(ctx, sqlDB)
+		if _, err := readTimeMarkers(ctx, sqlDB, "tbl"); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("readTimeMarkers_scan_error", func(t *testing.T) {
+		sqlDB, _ := newHookDB(t, &driverHooks{
+			queryHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Rows, error, bool) {
+				if strings.Contains(q, "SELECT column_name FROM") {
+					return &mockRows{cols: []string{"column_name"}, rows: [][]driver.Value{{struct{}{}}}}, nil, true
+				}
+				return nil, nil, false
+			},
+		})
+		_ = ensureTimeMarkerTable(ctx, sqlDB)
+		if _, err := readTimeMarkers(ctx, sqlDB, "tbl"); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("dropTimeMarkers_probe_error", func(t *testing.T) {
+		sqlDB, _ := newHookDB(t, &driverHooks{
+			queryHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Rows, error, bool) {
+				if strings.Contains(q, "SELECT name FROM sqlite_master") {
+					return nil, errors.New("probe error"), true
+				}
+				return nil, nil, false
+			},
+		})
+		if err := dropTimeMarkers(ctx, sqlDB, "tbl"); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("dropTimeMarkers_exec_error", func(t *testing.T) {
+		sqlDB, _ := newHookDB(t, &driverHooks{
+			execHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Result, error, bool) {
+				if strings.Contains(q, "DELETE FROM "+timeMarkerTable) {
+					return nil, errors.New("delete error"), true
+				}
+				return nil, nil, false
+			},
+		})
+		_ = ensureTimeMarkerTable(ctx, sqlDB)
+		if err := dropTimeMarkers(ctx, sqlDB, "tbl"); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+}
+
