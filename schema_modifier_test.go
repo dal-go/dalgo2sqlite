@@ -299,7 +299,7 @@ func TestCreateCollection_EdgeCasesAndErrors(t *testing.T) {
 	t.Run("create_table_exec_error", func(t *testing.T) {
 		_, db := newHookDB(t, &driverHooks{
 			execHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Result, error, bool) {
-				if strings.HasPrefix(q, "CREATE TABLE users") {
+				if strings.HasPrefix(q, `CREATE TABLE "users"`) {
 					return nil, errors.New("create table failed"), true
 				}
 				return nil, nil, false
@@ -597,7 +597,7 @@ func TestAlterCollection_ErrorsAndEdgeCases(t *testing.T) {
 	t.Run("modify_field_create_new_error", func(t *testing.T) {
 		_, db := newHookDB(t, &driverHooks{
 			execHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Result, error, bool) {
-				if strings.Contains(q, "CREATE TABLE users_new") {
+				if strings.Contains(q, `CREATE TABLE "users_new"`) {
 					return nil, errors.New("create new failed"), true
 				}
 				return nil, nil, false
@@ -614,7 +614,7 @@ func TestAlterCollection_ErrorsAndEdgeCases(t *testing.T) {
 	t.Run("modify_field_copy_data_error", func(t *testing.T) {
 		_, db := newHookDB(t, &driverHooks{
 			execHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Result, error, bool) {
-				if strings.Contains(q, "INSERT INTO users_new") {
+				if strings.Contains(q, `INSERT INTO "users_new"`) {
 					return nil, errors.New("copy data failed"), true
 				}
 				return nil, nil, false
@@ -631,7 +631,7 @@ func TestAlterCollection_ErrorsAndEdgeCases(t *testing.T) {
 	t.Run("modify_field_drop_original_error", func(t *testing.T) {
 		_, db := newHookDB(t, &driverHooks{
 			execHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Result, error, bool) {
-				if q == "DROP TABLE users" {
+				if q == `DROP TABLE "users"` {
 					return nil, errors.New("drop original failed"), true
 				}
 				return nil, nil, false
@@ -648,7 +648,7 @@ func TestAlterCollection_ErrorsAndEdgeCases(t *testing.T) {
 	t.Run("modify_field_rename_error", func(t *testing.T) {
 		_, db := newHookDB(t, &driverHooks{
 			execHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Result, error, bool) {
-				if strings.Contains(q, "ALTER TABLE users_new RENAME TO users") {
+				if strings.Contains(q, `ALTER TABLE "users_new" RENAME TO "users"`) {
 					return nil, errors.New("rename failed"), true
 				}
 				return nil, nil, false
@@ -690,3 +690,38 @@ func TestAlterCollection_ErrorsAndEdgeCases(t *testing.T) {
 	})
 }
 
+func TestAlterCollectionModifyFieldQuotesNativeIdentifiers(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db := openTestDB(t)
+	const tableName = `Product "ProductPhoto"`
+	const columnName = `O"Brien`
+
+	if err := db.CreateCollection(ctx, dbschema.CollectionDef{
+		Name: tableName,
+		Fields: []dbschema.FieldDef{
+			{Name: dal.FieldName("Primary"), Type: dbschema.Int, AutoIncrement: true},
+			{Name: dal.FieldName(columnName), Type: dbschema.String, Nullable: false},
+		},
+		PrimaryKey: []dal.FieldName{"Primary"},
+	}); err != nil {
+		t.Fatalf("CreateCollection: %v", err)
+	}
+	if _, err := db.sqlDB.ExecContext(ctx,
+		`INSERT INTO "Product ""ProductPhoto""" ("O""Brien") VALUES (?)`, "preserved"); err != nil {
+		t.Fatalf("insert initial row: %v", err)
+	}
+	if err := db.AlterCollection(ctx, tableName, ddl.ModifyField(dal.FieldName(columnName), dbschema.FieldDef{
+		Type: dbschema.String, Nullable: false,
+	})); err != nil {
+		t.Fatalf("ModifyField: %v", err)
+	}
+	var got string
+	if err := db.sqlDB.QueryRowContext(ctx,
+		`SELECT "O""Brien" FROM "Product ""ProductPhoto"""`).Scan(&got); err != nil {
+		t.Fatalf("read migrated row: %v", err)
+	}
+	if got != "preserved" {
+		t.Fatalf("migrated value = %q, want preserved", got)
+	}
+}

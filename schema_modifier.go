@@ -249,19 +249,21 @@ func (a *sqliteAlterApplier) ApplyModifyField(ctx context.Context, name dal.Fiel
 	// Copy data via INSERT INTO _new (cols) SELECT cols FROM original.
 	colNames := make([]string, len(modified.Fields))
 	for i, f := range modified.Fields {
-		colNames[i] = string(f.Name)
+		colNames[i] = quoteIdentifier(string(f.Name))
 	}
 	cols := strings.Join(colNames, ", ")
-	copySQL := fmt.Sprintf("INSERT INTO %s_new (%s) SELECT %s FROM %s", a.table, cols, cols, a.table)
+	newTable := quoteIdentifier(a.table + "_new")
+	oldTable := quoteIdentifier(a.table)
+	copySQL := fmt.Sprintf("INSERT INTO %s (%s) SELECT %s FROM %s", newTable, cols, cols, oldTable)
 	if _, err := a.tx.ExecContext(ctx, copySQL); err != nil {
 		return fmt.Errorf("dalgo2sqlite: ModifyField copy data: %w", err)
 	}
 
-	if _, err := a.tx.ExecContext(ctx, "DROP TABLE "+a.table); err != nil {
+	if _, err := a.tx.ExecContext(ctx, buildDropTableSQL(a.table, ddl.Options{})); err != nil {
 		return fmt.Errorf("dalgo2sqlite: ModifyField drop original: %w", err)
 	}
 
-	if _, err := a.tx.ExecContext(ctx, "ALTER TABLE "+a.table+"_new RENAME TO "+a.table); err != nil {
+	if _, err := a.tx.ExecContext(ctx, "ALTER TABLE "+newTable+" RENAME TO "+oldTable); err != nil {
 		return fmt.Errorf("dalgo2sqlite: ModifyField rename: %w", err)
 	}
 

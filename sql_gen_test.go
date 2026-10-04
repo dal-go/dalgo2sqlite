@@ -24,7 +24,7 @@ func TestBuildCreateTableSQL_Simple(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	want := "CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL, balance NUMERIC)"
+	want := `CREATE TABLE "users" ("id" INTEGER PRIMARY KEY AUTOINCREMENT, "email" TEXT NOT NULL, "balance" NUMERIC)`
 	if got != want {
 		t.Errorf("buildCreateTableSQL mismatch.\n  got:  %s\n  want: %s", got, want)
 	}
@@ -60,9 +60,82 @@ func TestBuildCreateTableSQL_CompositePK(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	want := "CREATE TABLE order_lines (order_id INTEGER NOT NULL, line_no INTEGER NOT NULL, qty INTEGER, PRIMARY KEY (order_id, line_no))"
+	want := `CREATE TABLE "order_lines" ("order_id" INTEGER NOT NULL, "line_no" INTEGER NOT NULL, "qty" INTEGER, PRIMARY KEY ("order_id", "line_no"))`
 	if got != want {
 		t.Errorf("buildCreateTableSQL composite-pk mismatch.\n  got:  %s\n  want: %s", got, want)
+	}
+}
+
+func TestGeneratedDDLQuotesNativeIdentifiers(t *testing.T) {
+	t.Parallel()
+	db := openClassifierTestDB(t)
+
+	const tableName = `Product "ProductPhoto"`
+	const quotedColumn = `O"Brien`
+	collection := dbschema.CollectionDef{
+		Name: tableName,
+		Fields: []dbschema.FieldDef{
+			{Name: dal.FieldName("Primary"), Type: dbschema.Int, AutoIncrement: true},
+			{Name: dal.FieldName(quotedColumn), Type: dbschema.String, Nullable: false},
+			{Name: dal.FieldName("display name"), Type: dbschema.String, Nullable: true},
+		},
+		PrimaryKey: []dal.FieldName{"Primary"},
+	}
+	createTable, err := buildCreateTableSQL(collection, ddl.Options{})
+	if err != nil {
+		t.Fatalf("buildCreateTableSQL: %v", err)
+	}
+	if _, err = db.Exec(createTable); err != nil {
+		t.Fatalf("execute generated CREATE TABLE: %v\nSQL: %s", err, createTable)
+	}
+
+	createIndex, err := buildCreateIndexSQL(dbschema.IndexDef{
+		Name:       `idx "display"`,
+		Collection: tableName,
+		Fields:     []dal.FieldName{"display name"},
+	}, ddl.Options{})
+	if err != nil {
+		t.Fatalf("buildCreateIndexSQL: %v", err)
+	}
+	if _, err = db.Exec(createIndex); err != nil {
+		t.Fatalf("execute generated CREATE INDEX: %v\nSQL: %s", err, createIndex)
+	}
+
+	addColumn, err := buildAlterTableAddColumnSQL(tableName, dbschema.FieldDef{
+		Name: dal.FieldName(`added "column"`), Type: dbschema.String, Nullable: true,
+	})
+	if err != nil {
+		t.Fatalf("buildAlterTableAddColumnSQL: %v", err)
+	}
+	if _, err = db.Exec(addColumn); err != nil {
+		t.Fatalf("execute generated ALTER TABLE ADD COLUMN: %v\nSQL: %s", err, addColumn)
+	}
+	renameColumn := buildAlterTableRenameColumnSQL(tableName, dal.FieldName(`added "column"`), dal.FieldName(`renamed "column"`))
+	if _, err = db.Exec(renameColumn); err != nil {
+		t.Fatalf("execute generated ALTER TABLE RENAME COLUMN: %v\nSQL: %s", err, renameColumn)
+	}
+	dropColumn := buildAlterTableDropColumnSQL(tableName, dal.FieldName(`renamed "column"`))
+	if _, err = db.Exec(dropColumn); err != nil {
+		t.Fatalf("execute generated ALTER TABLE DROP COLUMN: %v\nSQL: %s", err, dropColumn)
+	}
+
+	insert := `INSERT INTO "Product ""ProductPhoto""" ("O""Brien", "display name") VALUES (?, ?)`
+	if _, err = db.Exec(insert, "value", "shown"); err != nil {
+		t.Fatalf("insert into generated table: %v", err)
+	}
+	var got string
+	if err = db.QueryRow(`SELECT "O""Brien" FROM "Product ""ProductPhoto"""`).Scan(&got); err != nil {
+		t.Fatalf("read generated table: %v", err)
+	}
+	if got != "value" {
+		t.Fatalf("queried value = %q, want value", got)
+	}
+
+	if _, err = db.Exec(buildDropIndexSQL(`idx "display"`, ddl.Options{})); err != nil {
+		t.Fatalf("execute generated DROP INDEX: %v", err)
+	}
+	if _, err = db.Exec(buildDropTableSQL(tableName, ddl.Options{})); err != nil {
+		t.Fatalf("execute generated DROP TABLE: %v", err)
 	}
 }
 
@@ -96,7 +169,7 @@ func TestBuildCreateIndexSQL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	want := "CREATE INDEX ix_users_email ON users (email)"
+	want := `CREATE INDEX "ix_users_email" ON "users" ("email")`
 	if got != want {
 		t.Errorf("buildCreateIndexSQL mismatch.\n  got:  %s\n  want: %s", got, want)
 	}
@@ -114,7 +187,7 @@ func TestBuildCreateIndexSQL_Unique(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	want := "CREATE UNIQUE INDEX uq_users_email ON users (email)"
+	want := `CREATE UNIQUE INDEX "uq_users_email" ON "users" ("email")`
 	if got != want {
 		t.Errorf("buildCreateIndexSQL unique mismatch.\n  got:  %s\n  want: %s", got, want)
 	}
@@ -123,12 +196,12 @@ func TestBuildCreateIndexSQL_Unique(t *testing.T) {
 func TestBuildDropTableSQL(t *testing.T) {
 	t.Parallel()
 	got := buildDropTableSQL("users", ddl.Options{})
-	want := "DROP TABLE users"
+	want := `DROP TABLE "users"`
 	if got != want {
 		t.Errorf("buildDropTableSQL mismatch: got %q, want %q", got, want)
 	}
 	gotIf := buildDropTableSQL("users", ddl.ResolveOptions(ddl.IfExists()))
-	wantIf := "DROP TABLE IF EXISTS users"
+	wantIf := `DROP TABLE IF EXISTS "users"`
 	if gotIf != wantIf {
 		t.Errorf("buildDropTableSQL IfExists mismatch: got %q, want %q", gotIf, wantIf)
 	}
@@ -141,7 +214,7 @@ func TestBuildAlterTableAddColumn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	want := "ALTER TABLE users ADD COLUMN age INTEGER"
+	want := `ALTER TABLE "users" ADD COLUMN "age" INTEGER`
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
@@ -150,7 +223,7 @@ func TestBuildAlterTableAddColumn(t *testing.T) {
 func TestBuildAlterTableDropColumn(t *testing.T) {
 	t.Parallel()
 	got := buildAlterTableDropColumnSQL("users", dal.FieldName("age"))
-	want := "ALTER TABLE users DROP COLUMN age"
+	want := `ALTER TABLE "users" DROP COLUMN "age"`
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
@@ -159,7 +232,7 @@ func TestBuildAlterTableDropColumn(t *testing.T) {
 func TestBuildAlterTableRenameColumn(t *testing.T) {
 	t.Parallel()
 	got := buildAlterTableRenameColumnSQL("users", dal.FieldName("email"), dal.FieldName("email_address"))
-	want := "ALTER TABLE users RENAME COLUMN email TO email_address"
+	want := `ALTER TABLE "users" RENAME COLUMN "email" TO "email_address"`
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
@@ -168,12 +241,12 @@ func TestBuildAlterTableRenameColumn(t *testing.T) {
 func TestBuildDropIndexSQL(t *testing.T) {
 	t.Parallel()
 	got := buildDropIndexSQL("ix_users_email", ddl.Options{})
-	want := "DROP INDEX ix_users_email"
+	want := `DROP INDEX "ix_users_email"`
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 	gotIf := buildDropIndexSQL("ix_users_email", ddl.ResolveOptions(ddl.IfExists()))
-	wantIf := "DROP INDEX IF EXISTS ix_users_email"
+	wantIf := `DROP INDEX IF EXISTS "ix_users_email"`
 	if gotIf != wantIf {
 		t.Errorf("got %q, want %q", gotIf, wantIf)
 	}
@@ -229,4 +302,3 @@ func TestFieldHasAutoIncIntPK_False(t *testing.T) {
 		t.Error("expected false for missing field")
 	}
 }
-
