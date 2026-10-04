@@ -83,11 +83,7 @@ func (c *hookConn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.T
 		}
 		return &hookTx{Tx: tx, hooks: c.hooks}, nil
 	}
-	tx, err := c.Conn.Begin()
-	if err != nil {
-		return nil, err
-	}
-	return &hookTx{Tx: tx, hooks: c.hooks}, nil
+	return nil, errors.New("driver connection does not support BeginTx")
 }
 
 type hookTx struct {
@@ -134,15 +130,6 @@ func (m *mockRows) Next(dest []driver.Value) error {
 	m.pos++
 	return nil
 }
-
-type mockResult struct {
-	lastInsertId int64
-	rowsAffected int64
-	err          error
-}
-
-func (m mockResult) LastInsertId() (int64, error) { return m.lastInsertId, m.err }
-func (m mockResult) RowsAffected() (int64, error) { return m.rowsAffected, m.err }
 
 func newHookDB(t *testing.T, hooks *driverHooks) (*sql.DB, *Database) {
 	t.Helper()
