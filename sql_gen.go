@@ -15,7 +15,7 @@ func buildCreateTableSQL(c dbschema.CollectionDef, opts ddl.Options) (string, er
 	if opts.IfNotExists {
 		sb.WriteString("IF NOT EXISTS ")
 	}
-	sb.WriteString(c.Name)
+	sb.WriteString(quoteIdentifier(c.Name))
 	sb.WriteString(" (")
 
 	inlinePK := len(c.PrimaryKey) == 1 && fieldHasAutoIncIntPK(c, c.PrimaryKey[0])
@@ -38,7 +38,7 @@ func buildCreateTableSQL(c dbschema.CollectionDef, opts ddl.Options) (string, er
 	if !inlinePK && len(c.PrimaryKey) > 0 {
 		pkNames := make([]string, len(c.PrimaryKey))
 		for i, n := range c.PrimaryKey {
-			pkNames[i] = string(n)
+			pkNames[i] = quoteIdentifier(string(n))
 		}
 		parts = append(parts, "PRIMARY KEY ("+strings.Join(pkNames, ", ")+")")
 	}
@@ -56,7 +56,7 @@ func buildColumnDecl(f dbschema.FieldDef, inlinePK, compositePK, inPK bool) (str
 	if err != nil {
 		return "", fmt.Errorf("dalgo2sqlite: field %q: %w", f.Name, err)
 	}
-	parts := []string{string(f.Name), sqlType}
+	parts := []string{quoteIdentifier(string(f.Name)), sqlType}
 	if inlinePK {
 		parts = append(parts, "PRIMARY KEY")
 		if f.AutoIncrement {
@@ -101,13 +101,13 @@ func buildCreateIndexSQL(idx dbschema.IndexDef, opts ddl.Options) (string, error
 	if opts.IfNotExists {
 		sb.WriteString("IF NOT EXISTS ")
 	}
-	sb.WriteString(idx.Name)
+	sb.WriteString(quoteIdentifier(idx.Name))
 	sb.WriteString(" ON ")
-	sb.WriteString(idx.Collection)
+	sb.WriteString(quoteIdentifier(idx.Collection))
 	sb.WriteString(" (")
 	cols := make([]string, len(idx.Fields))
 	for i, n := range idx.Fields {
-		cols[i] = string(n)
+		cols[i] = quoteIdentifier(string(n))
 	}
 	sb.WriteString(strings.Join(cols, ", "))
 	sb.WriteString(")")
@@ -116,16 +116,16 @@ func buildCreateIndexSQL(idx dbschema.IndexDef, opts ddl.Options) (string, error
 
 func buildDropTableSQL(name string, opts ddl.Options) string {
 	if opts.IfExists {
-		return "DROP TABLE IF EXISTS " + name
+		return "DROP TABLE IF EXISTS " + quoteIdentifier(name)
 	}
-	return "DROP TABLE " + name
+	return "DROP TABLE " + quoteIdentifier(name)
 }
 
 func buildDropIndexSQL(name string, opts ddl.Options) string {
 	if opts.IfExists {
-		return "DROP INDEX IF EXISTS " + name
+		return "DROP INDEX IF EXISTS " + quoteIdentifier(name)
 	}
-	return "DROP INDEX " + name
+	return "DROP INDEX " + quoteIdentifier(name)
 }
 
 func buildAlterTableAddColumnSQL(table string, f dbschema.FieldDef) (string, error) {
@@ -133,13 +133,19 @@ func buildAlterTableAddColumnSQL(table string, f dbschema.FieldDef) (string, err
 	if err != nil {
 		return "", err
 	}
-	return "ALTER TABLE " + table + " ADD COLUMN " + colDecl, nil
+	return "ALTER TABLE " + quoteIdentifier(table) + " ADD COLUMN " + colDecl, nil
 }
 
 func buildAlterTableDropColumnSQL(table string, col dal.FieldName) string {
-	return "ALTER TABLE " + table + " DROP COLUMN " + string(col)
+	return "ALTER TABLE " + quoteIdentifier(table) + " DROP COLUMN " + quoteIdentifier(string(col))
 }
 
 func buildAlterTableRenameColumnSQL(table string, oldName, newName dal.FieldName) string {
-	return "ALTER TABLE " + table + " RENAME COLUMN " + string(oldName) + " TO " + string(newName)
+	return "ALTER TABLE " + quoteIdentifier(table) + " RENAME COLUMN " + quoteIdentifier(string(oldName)) + " TO " + quoteIdentifier(string(newName))
+}
+
+// quoteIdentifier quotes one SQLite identifier while preserving its exact
+// native spelling. SQLite escapes an embedded double quote by doubling it.
+func quoteIdentifier(name string) string {
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
 }
