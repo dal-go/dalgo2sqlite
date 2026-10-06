@@ -100,7 +100,8 @@ func describeCollectionImpl(ctx context.Context, db *sql.DB, name string) (*dbsc
 		if scanErr := rows.Scan(&colName, &declType, &notnull, &dfltValue, &pkPosition); scanErr != nil {
 			return nil, fmt.Errorf("dalgo2sqlite: pragma_table_info scan: %w", scanErr)
 		}
-		_ = dfltValue // Default population is plan-deferred
+		// The portable DefaultExpr set cannot represent arbitrary SQLite
+		// expressions. The raw expression is retained in SourceDefinition.
 
 		var t dbschema.Type
 		var precision *dbschema.Precision
@@ -117,8 +118,11 @@ func describeCollectionImpl(ctx context.Context, db *sql.DB, name string) (*dbsc
 				}
 			}
 		}
-		// PK columns are implicitly NOT NULL in SQLite even when notnull=0.
-		nullable := notnull == 0 && pkPosition == 0
+		// A non-INTEGER PRIMARY KEY can contain NULL in an ordinary SQLite
+		// rowid table when NOT NULL was not declared. The source catalog flag
+		// remains available separately even when a provider applies stricter
+		// effective PK semantics.
+		nullable := notnull == 0
 		f := dbschema.FieldDef{
 			Name:      dal.FieldName(colName),
 			Type:      t,
@@ -151,13 +155,35 @@ func describeCollectionImpl(ctx context.Context, db *sql.DB, name string) (*dbsc
 	if err != nil {
 		return nil, err
 	}
+	sourceDefinition, err := readSourceDefinition(ctx, db, name)
+	if err != nil {
+		return nil, err
+	}
+	hasPKIndex := false
+	for _, index := range sourceDefinition.Indexes {
+		if index.Origin == "pk" {
+			hasPKIndex = true
+			break
+		}
+	}
+	for i, col := range sourceDefinition.Columns {
+		if i >= len(fields) || col.Name != string(fields[i].Name) {
+			return nil, fmt.Errorf("dalgo2sqlite: source columns differ from portable fields in %q", name)
+		}
+		// A sole INTEGER PRIMARY KEY is a rowid alias and cannot remain NULL.
+		if len(pk) == 1 && col.PrimaryKeyPosition == 1 && strings.EqualFold(strings.TrimSpace(col.DeclaredType), "INTEGER") &&
+			!hasPKIndex && !strings.Contains(strings.ToUpper(sourceDefinition.CreateSQL), "WITHOUT ROWID") {
+			fields[i].Nullable = false
+		}
+	}
 
 	return &dbschema.CollectionDef{
-		Name:        name,
-		Fields:      fields,
-		PrimaryKey:  pk,
-		Indexes:     indexes,
-		ForeignKeys: foreignKeys,
+		Name:             name,
+		Fields:           fields,
+		PrimaryKey:       pk,
+		Indexes:          indexes,
+		ForeignKeys:      foreignKeys,
+		SourceDefinition: sourceDefinition,
 	}, nil
 }
 
@@ -211,6 +237,11 @@ func listIndexesImpl(ctx context.Context, db *sql.DB, name string) ([]dbschema.I
 		if fErr != nil {
 			return nil, fErr
 		}
+		if len(fields) == 0 {
+			// Portable IndexDef cannot represent expression terms. The
+			// complete index remains in SourceDefinition.Indexes.
+			continue
+		}
 		out = append(out, dbschema.IndexDef{
 			Name:       ixName,
 			Collection: name,
@@ -231,12 +262,23 @@ func readIndexFields(ctx context.Context, db *sql.DB, indexName string) ([]dal.F
 	}
 	defer func() { _ = rows.Close() }()
 	var out []dal.FieldName
+	hasExpression := false
 	for rows.Next() {
-		var col string
+		var col sql.NullString
 		if scanErr := rows.Scan(&col); scanErr != nil {
 			return nil, fmt.Errorf("dalgo2sqlite: pragma_index_info scan: %w", scanErr)
 		}
-		out = append(out, dal.FieldName(col))
+		if !col.Valid {
+			hasExpression = true
+			continue
+		}
+		out = append(out, dal.FieldName(col.String))
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if hasExpression {
+		return nil, nil
+	}
+	return out, nil
 }
