@@ -66,7 +66,12 @@ func (d *Database) OpenSourceRows(ctx context.Context, ref *dal.CollectionRef) (
 	sortPKByOrder(pk)
 	selects := make([]string, 0, len(names)*2)
 	for _, name := range names {
-		selects = append(selects, quoteIdentifier(name))
+		quoted := quoteIdentifier(name)
+		// A bare DATETIME column is decoded by some SQLite drivers as
+		// time.Time even when its actual SQLite storage class is TEXT.
+		// Project through an expression so the driver's declared-type
+		// conversion cannot rewrite the source's lexical text value.
+		selects = append(selects, "CASE WHEN typeof("+quoted+")='text' THEN CAST("+quoted+" AS TEXT) ELSE "+quoted+" END")
 	}
 	for _, name := range names {
 		selects = append(selects, "typeof("+quoteIdentifier(name)+")")

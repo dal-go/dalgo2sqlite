@@ -90,6 +90,10 @@ func TestSourceRowsStreamKeepsStorageClassAndDecimalValue(t *testing.T) {
 		`INSERT INTO keyless VALUES ('second'), ('first')`,
 		`CREATE TABLE shadowed_rowid (rowid TEXT, name TEXT)`,
 		`INSERT INTO shadowed_rowid VALUES ('z', 'first'), ('a', 'second')`,
+		`CREATE TABLE dates (at DATETIME NOT NULL)`,
+		`INSERT INTO dates VALUES ('2021-01-01 00:00:00.000')`,
+		`CREATE TABLE typed_literals (b BOOLEAN, d DATE, tm TIMESTAMP, raw BLOB, missing TEXT)`,
+		`INSERT INTO typed_literals VALUES (1, '2020-02-03', '2020-02-03 04:05:06', X'00FF', NULL)`,
 	} {
 		if _, err := db.sqlDB.ExecContext(ctx, statement); err != nil {
 			t.Fatal(err)
@@ -158,6 +162,33 @@ func TestSourceRowsStreamKeepsStorageClassAndDecimalValue(t *testing.T) {
 		if err != nil || row.Values["name"] != expected {
 			t.Fatalf("hidden rowid order=%+v err=%v want %q", row, err, expected)
 		}
+	}
+	dates := dal.NewRootCollectionRef("dates", "")
+	dateCursor, err := db.OpenSourceRows(ctx, &dates)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = dateCursor.Close() }()
+	dateRow, err := dateCursor.Next()
+	if err != nil || dateRow.Values["at"] != "2021-01-01 00:00:00.000" || dateRow.StorageClasses["at"] != "text" {
+		t.Fatalf("DATETIME TEXT must retain lexical source value: row=%+v err=%v", dateRow, err)
+	}
+	literals := dal.NewRootCollectionRef("typed_literals", "")
+	literalCursor, err := db.OpenSourceRows(ctx, &literals)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = literalCursor.Close() }()
+	literalRow, err := literalCursor.Next()
+	if err != nil || literalRow.Values["b"] != int64(1) || literalRow.StorageClasses["b"] != "integer" ||
+		literalRow.Values["d"] != "2020-02-03" || literalRow.Values["tm"] != "2020-02-03 04:05:06" ||
+		literalRow.StorageClasses["d"] != "text" || literalRow.StorageClasses["tm"] != "text" ||
+		literalRow.Values["missing"] != nil || literalRow.StorageClasses["missing"] != "null" {
+		t.Fatalf("declared-type coercions must not rewrite storage values: row=%+v err=%v", literalRow, err)
+	}
+	raw, ok := literalRow.Values["raw"].([]byte)
+	if !ok || string(raw) != string([]byte{0, 255}) || literalRow.StorageClasses["raw"] != "blob" {
+		t.Fatalf("BLOB must remain bytes: row=%+v", literalRow)
 	}
 }
 
