@@ -71,6 +71,8 @@ func TestDbschemaTypeFromSQLite(t *testing.T) {
 		{"datetime", dbschema.Time, true, nil},
 		{"DATE", dbschema.Time, true, nil},
 		{"TIME", dbschema.Time, true, nil},
+		{"BOOLEAN", dbschema.Bool, true, nil},
+		{"bool", dbschema.Bool, true, nil},
 		// New: NUMERIC/DECIMAL with precision.
 		{"NUMERIC(10,2)", dbschema.Decimal, true, &dbschema.Precision{Total: 10, Scale: 2}},
 		{"numeric(38,9)", dbschema.Decimal, true, &dbschema.Precision{Total: 38, Scale: 9}},
@@ -276,4 +278,3 @@ func TestTimeMarkers_Errors(t *testing.T) {
 		}
 	})
 }
-

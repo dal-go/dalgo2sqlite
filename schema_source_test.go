@@ -180,7 +180,7 @@ func TestSourceRowsStreamKeepsStorageClassAndDecimalValue(t *testing.T) {
 	}
 	defer func() { _ = literalCursor.Close() }()
 	literalRow, err := literalCursor.Next()
-	if err != nil || literalRow.Values["b"] != int64(1) || literalRow.StorageClasses["b"] != "integer" ||
+	if err != nil || literalRow.Values["b"] != true || literalRow.StorageClasses["b"] != "integer" ||
 		literalRow.Values["d"] != "2020-02-03" || literalRow.Values["tm"] != "2020-02-03 04:05:06" ||
 		literalRow.StorageClasses["d"] != "text" || literalRow.StorageClasses["tm"] != "text" ||
 		literalRow.Values["missing"] != nil || literalRow.StorageClasses["missing"] != "null" {

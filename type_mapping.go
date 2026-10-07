@@ -43,6 +43,8 @@ func sqliteTypeFor(t dbschema.Type) (string, error) {
 
 // dbschemaTypeFromSQLite reverses sqliteTypeFor for introspection.
 // SQLite type-affinity rules per https://www.sqlite.org/datatype3.html:
+//   - "BOOLEAN"/"BOOL" → dbschema.Bool; physical source reads accept only
+//     INTEGER 0/1 or NULL, rejecting other SQLite storage classes and values.
 //   - Contains "INT" → INTEGER → dbschema.Int
 //   - Contains "CHAR"/"CLOB"/"TEXT" → TEXT → dbschema.String
 //   - Contains "BLOB" → BLOB → dbschema.Bytes
@@ -69,6 +71,8 @@ func dbschemaTypeFromSQLite(declared string) (dbschema.Type, *dbschema.Precision
 	switch upper {
 	case "DATETIME", "DATE", "TIME", "TIMESTAMP":
 		return dbschema.Time, nil, true
+	case "BOOLEAN", "BOOL":
+		return dbschema.Bool, nil, true
 	}
 
 	// NUMERIC(p,s) / DECIMAL(p,s) with explicit precision.
