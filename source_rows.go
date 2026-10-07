@@ -140,9 +140,7 @@ func (cursor *sourceRowsCursor) Next() (dbschema.SourceRow, error) {
 		if cursor.boolean[i] {
 			switch class {
 			case "null":
-				if value != nil {
-					return dbschema.SourceRow{}, fmt.Errorf("dalgo2sqlite: declared BOOLEAN %q has non-NULL value with NULL storage class", name)
-				}
+				value = nil
 			case "integer":
 				integer, ok := value.(int64)
 				if !ok || integer != 0 && integer != 1 {
