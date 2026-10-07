@@ -19,6 +19,7 @@ type sourceRowsCursor struct {
 	rows    *sql.Rows
 	names   []string
 	decimal []bool
+	boolean []bool
 }
 
 // OpenSourceRows streams every native table row with its SQLite storage
@@ -40,6 +41,7 @@ func (d *Database) OpenSourceRows(ctx context.Context, ref *dal.CollectionRef) (
 	}
 	var names []string
 	var decimal []bool
+	var boolean []bool
 	var pk []pkEntry
 	for rows.Next() {
 		var name, declared string
@@ -51,6 +53,7 @@ func (d *Database) OpenSourceRows(ctx context.Context, ref *dal.CollectionRef) (
 		names = append(names, name)
 		t, _, recognized := dbschemaTypeFromSQLite(declared)
 		decimal = append(decimal, recognized && t == dbschema.Decimal)
+		boolean = append(boolean, recognized && t == dbschema.Bool)
 		if position > 0 {
 			pk = append(pk, pkEntry{colName: name, pkOrder: position})
 		}
@@ -108,7 +111,7 @@ func (d *Database) OpenSourceRows(ctx context.Context, ref *dal.CollectionRef) (
 	if err != nil {
 		return nil, fmt.Errorf("dalgo2sqlite: source rows for %q: %w", table, err)
 	}
-	return &sourceRowsCursor{rows: result, names: names, decimal: decimal}, nil
+	return &sourceRowsCursor{rows: result, names: names, decimal: decimal, boolean: boolean}, nil
 }
 
 func (cursor *sourceRowsCursor) Next() (dbschema.SourceRow, error) {
@@ -134,6 +137,20 @@ func (cursor *sourceRowsCursor) Next() (dbschema.SourceRow, error) {
 			return dbschema.SourceRow{}, fmt.Errorf("dalgo2sqlite: storage class for %q is %T", name, cells[count+i])
 		}
 		value := cells[i]
+		if cursor.boolean[i] {
+			switch class {
+			case "null":
+				value = nil
+			case "integer":
+				integer, ok := value.(int64)
+				if !ok || integer != 0 && integer != 1 {
+					return dbschema.SourceRow{}, fmt.Errorf("dalgo2sqlite: declared BOOLEAN %q must contain only INTEGER 0 or 1", name)
+				}
+				value = integer == 1
+			default:
+				return dbschema.SourceRow{}, fmt.Errorf("dalgo2sqlite: declared BOOLEAN %q has unsupported SQLite storage class %q", name, class)
+			}
+		}
 		if cursor.decimal[i] {
 			switch typed := value.(type) {
 			case int64:
