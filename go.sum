@@ -8,10 +8,14 @@ github.com/cockroachdb/cockroach-go/v2 v2.2.0 h1:/5znzg5n373N/3ESjHF5SMLxiW4RKB0
 github.com/cockroachdb/cockroach-go/v2 v2.2.0/go.mod h1:u3MiKYGupPPjkn3ozknpMUpxPaNLTFWAya419/zv6eI=
 github.com/dal-go/dalgo v0.93.0 h1:jcigrWhdgkOJjf9LFLvDAqrsVzxHtpVEZH7oLhV6b7I=
 github.com/dal-go/dalgo v0.93.0/go.mod h1:Pvqn4YCOqLxKeim0M/0wzGDwtuaZKi18TRdaZ3PCS3c=
+github.com/dal-go/dalgo v0.94.2 h1:uwZTcha6bEBZW/Y7xnJBnKddu9B8ezKtyp22xqXEgoA=
+github.com/dal-go/dalgo v0.94.2/go.mod h1:D0eryUAzC1TZhFTGT3BJS+AOjaiHMrbgrfl6Hsxt8ak=
 github.com/dal-go/dalgo2sql v0.19.3 h1:7qb83rnHDCruVrWAONm/LYL7sJTW9IX4/hxUf6KxIAs=
 github.com/dal-go/dalgo2sql v0.19.3/go.mod h1:/WI/pEeJx+nUS8Yo+UugLN/1QXz2IfUiTYyn7fhoCv0=
 github.com/dal-go/record v0.1.4 h1:21IJNlUASNw9TytcB5V5a2jHQKa1pycr//dGvj8zNH8=
 github.com/dal-go/record v0.1.4/go.mod h1:PuoOCH74/Vf+pIVWSdrMg7OdUmlSlPgj68yJ+gM42To=
+github.com/dal-go/record v0.1.5 h1:lkPxiJA7S2oE5tA0WUayezd+lmaiEekrEcGz/HRhzLg=
+github.com/dal-go/record v0.1.5/go.mod h1:PuoOCH74/Vf+pIVWSdrMg7OdUmlSlPgj68yJ+gM42To=
 github.com/dustin/go-humanize v1.0.1 h1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkpeCY=
 github.com/dustin/go-humanize v1.0.1/go.mod h1:Mu1zIs6XwVuF/gI1OepvI0qD18qycQx+mFykh5fBlto=
 github.com/georgysavva/scany/v2 v2.1.4 h1:nrzHEJ4oQVRoiKmocRqA1IyGOmM/GQOEsg9UjMR5Ip4=
