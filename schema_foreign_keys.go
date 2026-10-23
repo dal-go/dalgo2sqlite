@@ -3,6 +3,7 @@ package dalgo2sqlite
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/dal-go/dalgo/dal"
@@ -55,7 +56,19 @@ func readForeignKeys(ctx context.Context, db *sql.DB, table string) ([]dbschema.
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("dalgo2sqlite: foreign key rows: %w", err)
 	}
+	_ = rows.Close() // the connection is needed for the lookups below
 	for i := range keys {
+		// SQLite finds the table a foreign key names in any letter case: the key
+		// names the table as the database spells it, when it holds one.
+		var spelled string
+		err := conn.QueryRowContext(ctx,
+			`SELECT name FROM sqlite_master WHERE type='table' AND name=? COLLATE NOCASE`, keys[i].ReferencedCollection).Scan(&spelled)
+		switch {
+		case err == nil:
+			keys[i].ReferencedCollection = spelled
+		case !errors.Is(err, sql.ErrNoRows):
+			return nil, fmt.Errorf("dalgo2sqlite: foreign key target table: %w", err)
+		}
 		if len(keys[i].ReferencedFields) != 0 {
 			continue
 		}

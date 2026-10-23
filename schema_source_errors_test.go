@@ -117,7 +117,7 @@ func TestSourceDefinitionPropagatesCatalogFaults(t *testing.T) {
 		modes     []string
 	}{
 		{"hidden", `SELECT name, hidden FROM pragma_table_xinfo`, []string{"query", "scan", "rows"}},
-		{"tableDDL", `SELECT sql FROM sqlite_master WHERE type='table'`, []string{"query", "scan"}},
+		{"tableDDL", `SELECT sql FROM sqlite_master WHERE type IN ('table', 'view')`, []string{"query", "scan"}},
 		{"columns", `SELECT name, type, "notnull"`, []string{"query", "scan", "rows"}},
 		{"indexes", `SELECT name, "unique", origin, partial`, []string{"query", "scan", "rows"}},
 		{"indexDDL", `SELECT sql FROM sqlite_master WHERE type='index'`, []string{"query", "scan"}},
@@ -128,7 +128,7 @@ func TestSourceDefinitionPropagatesCatalogFaults(t *testing.T) {
 			t.Run(stage.name+"/"+mode, func(t *testing.T) {
 				db, hooks := sourceHookDB(t)
 				failQueryAt(hooks, stage.sql, mode)
-				if _, err := readSourceDefinition(context.Background(), db.sqlDB, "source"); err == nil {
+				if _, err := readSourceDefinition(context.Background(), db.sqlDB, "source", false); err == nil {
 					t.Fatal("source catalog fault was ignored")
 				}
 			})

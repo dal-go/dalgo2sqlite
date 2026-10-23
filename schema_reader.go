@@ -18,7 +18,7 @@ func (d *Database) ListCollections(ctx context.Context, parent *record.Key) ([]d
 	_ = parent // ignored
 	rows, err := d.sqlDB.QueryContext(ctx,
 		`SELECT name FROM sqlite_master
-		 WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name != ?
+		 WHERE type='table' AND `+ownTablesFilter+` AND name != ?
 		 ORDER BY name`,
 		timeMarkerTable,
 	)
@@ -26,20 +26,52 @@ func (d *Database) ListCollections(ctx context.Context, parent *record.Key) ([]d
 		return nil, fmt.Errorf("dalgo2sqlite: ListCollections: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
+	return d.collectionRefs(rows, "ListCollections")
+}
+
+// collectionRefs reads the names of rows into references. SQLite allows a table or
+// a view with an empty name, which no reference can hold: the strict reader leaves
+// one out, and the lenient one (see LenientSchema) lists it as the zero
+// dal.CollectionRef, so that its caller can say what it leaves out.
+func (d *Database) collectionRefs(rows *sql.Rows, op string) ([]dal.CollectionRef, error) {
 	var out []dal.CollectionRef
 	for rows.Next() {
 		var name string
 		if scanErr := rows.Scan(&name); scanErr != nil {
-			return nil, fmt.Errorf("dalgo2sqlite: ListCollections scan: %w", scanErr)
+			return nil, fmt.Errorf("dalgo2sqlite: %s scan: %w", op, scanErr)
 		}
-		out = append(out, dal.NewRootCollectionRef(name, ""))
+		switch {
+		case name != "":
+			out = append(out, dal.NewRootCollectionRef(name, ""))
+		case d.lenient:
+			out = append(out, dal.CollectionRef{})
+		}
 	}
 	return out, rows.Err()
 }
 
+// ownTablesFilter keeps SQLite's own tables (sqlite_sequence, sqlite_stat1 and
+// every other name SQLite reserves with the "sqlite_" prefix) out of a listing.
+// The underscore is escaped: unescaped, it matches any character, and a user's
+// table named, say, "sqliteish" would be left out.
+const ownTablesFilter = `name NOT LIKE 'sqlite\_%' ESCAPE '\'`
+
+// ListViews returns the views of the database in alphabetical order, a view
+// with an empty name as ListCollections lists a table with one. A view is not
+// among the collections ListCollections returns; on a Database made by
+// LenientSchema, DescribeCollection describes one.
+func (d *Database) ListViews(ctx context.Context) ([]dal.CollectionRef, error) {
+	rows, err := d.sqlDB.QueryContext(ctx, `SELECT name FROM sqlite_master WHERE type='view' ORDER BY name`)
+	if err != nil {
+		return nil, fmt.Errorf("dalgo2sqlite: ListViews: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	return d.collectionRefs(rows, "ListViews")
+}
+
 // DescribeCollection is implemented in T15.
 func (d *Database) DescribeCollection(ctx context.Context, ref *dal.CollectionRef) (*dbschema.CollectionDef, error) {
-	return describeCollectionImpl(ctx, d.sqlDB, ref.Name())
+	return describeCollection(ctx, d.sqlDB, ref.Name(), d.lenient)
 }
 
 // ListIndexes is implemented in T16.
@@ -54,13 +86,17 @@ type pkEntry struct {
 	pkOrder int
 }
 
-// describeCollectionImpl is the inner reader, factored so AlterCollection
-// can also use it from within a transaction (variant added later).
-func describeCollectionImpl(ctx context.Context, db *sql.DB, name string) (*dbschema.CollectionDef, error) {
+// describeCollection is the inner reader: it describes the table name, or with
+// lenient the table or view (see Database.LenientSchema).
+func describeCollection(ctx context.Context, db *sql.DB, name string, lenient bool) (*dbschema.CollectionDef, error) {
 	// 1. Confirm the table exists.
+	kinds := `type='table'`
+	if lenient {
+		kinds = `type IN ('table', 'view')`
+	}
 	var found string
 	probeErr := db.QueryRowContext(ctx,
-		`SELECT name FROM sqlite_master WHERE type='table' AND name=?`,
+		`SELECT name FROM sqlite_master WHERE `+kinds+` AND name=?`,
 		name,
 	).Scan(&found)
 	if probeErr == sql.ErrNoRows {
@@ -110,7 +146,7 @@ func describeCollectionImpl(ctx context.Context, db *sql.DB, name string) (*dbsc
 		} else {
 			var ok bool
 			t, precision, ok = dbschemaTypeFromSQLite(declType)
-			if !ok {
+			if !ok && !lenient {
 				return nil, &dbschema.NotSupportedError{
 					Op:      "DescribeCollection",
 					Backend: "dalgo2sqlite",
@@ -155,7 +191,7 @@ func describeCollectionImpl(ctx context.Context, db *sql.DB, name string) (*dbsc
 	if err != nil {
 		return nil, err
 	}
-	sourceDefinition, err := readSourceDefinition(ctx, db, name)
+	sourceDefinition, err := readSourceDefinition(ctx, db, name, lenient)
 	if err != nil {
 		return nil, err
 	}
