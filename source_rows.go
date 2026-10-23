@@ -31,7 +31,7 @@ func (d *Database) OpenSourceRows(ctx context.Context, ref *dal.CollectionRef) (
 		return nil, fmt.Errorf("dalgo2sqlite: source collection name is empty")
 	}
 	table := ref.Name()
-	if err := rejectHiddenSourceColumns(ctx, d.sqlDB, table); err != nil {
+	if err := rejectHiddenSourceColumns(ctx, d.sqlDB, "OpenSourceRows", table); err != nil {
 		return nil, err
 	}
 	rows, err := d.sqlDB.QueryContext(ctx,
