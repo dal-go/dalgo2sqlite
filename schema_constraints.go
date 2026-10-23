@@ -14,7 +14,8 @@ import (
 //   - The primary-key constraint (one row if any PK columns exist)
 //   - Foreign-key constraints from PRAGMA foreign_key_list
 //   - UNIQUE constraints, each named as the index SQLite made for it
-//     (origin "u" in PRAGMA index_list), whose columns ListIndexes reports
+//     (origin "u" in PRAGMA index_list): ConstraintDef holds no columns, so
+//     a constraint's columns are those of the index of its name in ListIndexes
 //
 // CHECK clauses and inline NOT NULL constraints are NOT enumerated
 // (SQLite doesn't expose CHECK source portably). Callers read those
@@ -100,7 +101,7 @@ func (d *Database) ListReferrers(ctx context.Context, ref *dal.CollectionRef) ([
 	}
 	var out []dbschema.Referrer
 	for _, t := range tables {
-		if t.Name() == ref.Name() || t.Name() == "" {
+		if t.Name() == ref.Name() {
 			continue
 		}
 		fields, fkErr := referrerFields(ctx, d.sqlDB, t.Name(), ref.Name())

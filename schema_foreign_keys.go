@@ -3,8 +3,8 @@ package dalgo2sqlite
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/dal-go/dalgo/dal"
 	"github.com/dal-go/dalgo/dbschema"
@@ -56,18 +56,15 @@ func readForeignKeys(ctx context.Context, db *sql.DB, table string) ([]dbschema.
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("dalgo2sqlite: foreign key rows: %w", err)
 	}
-	_ = rows.Close() // the connection is needed for the lookups below
+	// SQLite finds the table a foreign key names in any letter case: the key names
+	// the table as the database spells it, when it holds one.
+	spelled, err := tableSpellings(ctx, conn, keys)
+	if err != nil {
+		return nil, err
+	}
 	for i := range keys {
-		// SQLite finds the table a foreign key names in any letter case: the key
-		// names the table as the database spells it, when it holds one.
-		var spelled string
-		err := conn.QueryRowContext(ctx,
-			`SELECT name FROM sqlite_master WHERE type='table' AND name=? COLLATE NOCASE`, keys[i].ReferencedCollection).Scan(&spelled)
-		switch {
-		case err == nil:
-			keys[i].ReferencedCollection = spelled
-		case !errors.Is(err, sql.ErrNoRows):
-			return nil, fmt.Errorf("dalgo2sqlite: foreign key target table: %w", err)
+		if name, ok := spelled[foldASCII(keys[i].ReferencedCollection)]; ok {
+			keys[i].ReferencedCollection = name
 		}
 		if len(keys[i].ReferencedFields) != 0 {
 			continue
@@ -92,4 +89,40 @@ func readForeignKeys(ctx context.Context, db *sql.DB, table string) ([]dbschema.
 		_ = pkRows.Close()
 	}
 	return keys, nil
+}
+
+// foldASCII lower-cases the ASCII letters of name and no other, as SQLite's NOCASE
+// compares names.
+func foldASCII(name string) string {
+	return strings.Map(func(r rune) rune {
+		if 'A' <= r && r <= 'Z' {
+			return r + 'a' - 'A'
+		}
+		return r
+	}, name)
+}
+
+// tableSpellings is the tables of the database by their names folded as SQLite
+// compares them (foldASCII), read only when there are keys to resolve.
+func tableSpellings(ctx context.Context, conn *sql.Conn, keys []dbschema.ForeignKeyDef) (map[string]string, error) {
+	if len(keys) == 0 {
+		return nil, nil
+	}
+	rows, err := conn.QueryContext(ctx, `SELECT name FROM sqlite_master WHERE type='table'`)
+	if err != nil {
+		return nil, fmt.Errorf("dalgo2sqlite: foreign key target tables: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	spelled := map[string]string{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, fmt.Errorf("dalgo2sqlite: foreign key target table scan: %w", err)
+		}
+		spelled[foldASCII(name)] = name
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("dalgo2sqlite: foreign key target table rows: %w", err)
+	}
+	return spelled, nil
 }

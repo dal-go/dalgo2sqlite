@@ -57,11 +57,15 @@ type Database struct {
 //     as JSON or UUID) is [dbschema.Null] instead of failing the description, and
 //     its declared type stays in SourceDefinition;
 //   - generated columns and the hidden columns of a virtual table are left out of
-//     the description, as PRAGMA table_info leaves them out, instead of failing it.
+//     the description, as PRAGMA table_info leaves them out, instead of failing it;
+//   - a table or a view with an empty name is left out of ListCollections and
+//     ListViews (UnnamedObjects lists them), where the strict reader refuses it;
+//   - an index on a column the description leaves out is left out of Indexes and
+//     ListIndexes; SourceDefinition.Indexes keeps it.
 //
 // The Database it is called on is unchanged: its schema reads still refuse what a
 // lossless export cannot represent. The two share one connection pool, so closing
-// either closes both.
+// either closes both: close the Database that owns the pool, not the lenient one.
 func (d *Database) LenientSchema() *Database {
 	lenient := *d
 	lenient.lenient = true

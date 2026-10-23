@@ -2,6 +2,7 @@ package dalgo2sqlite
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"strings"
 	"testing"
@@ -273,13 +274,17 @@ func TestForeignKeys_NameTheTableAsTheDatabaseSpellsIt(t *testing.T) {
 }
 
 func TestForeignKeys_TargetLookupFault(t *testing.T) {
-	db, hooks := sourceHookDB(t)
-	if _, err := db.sqlDB.ExecContext(context.Background(), `CREATE TABLE child (id INTEGER PRIMARY KEY, source_id INTEGER REFERENCES source(id))`); err != nil {
-		t.Fatal(err)
-	}
-	failQueryAt(hooks, `name=? COLLATE NOCASE`, "query")
-	if _, err := readForeignKeys(context.Background(), db.sqlDB, "child"); err == nil {
-		t.Fatal("a fault looking up the table a key refers to was ignored")
+	for _, mode := range []string{"query", "scan", "rows"} {
+		t.Run(mode, func(t *testing.T) {
+			db, hooks := sourceHookDB(t)
+			if _, err := db.sqlDB.ExecContext(context.Background(), `CREATE TABLE child (id INTEGER PRIMARY KEY, source_id INTEGER REFERENCES source(id))`); err != nil {
+				t.Fatal(err)
+			}
+			failQueryAt(hooks, `SELECT name FROM sqlite_master WHERE type='table'`, mode)
+			if _, err := readForeignKeys(context.Background(), db.sqlDB, "child"); err == nil {
+				t.Fatal("a fault looking up the table a key refers to was ignored")
+			}
+		})
 	}
 }
 
@@ -297,25 +302,138 @@ func TestUnnamedTablesAndViews(t *testing.T) {
 		}
 		var out []string
 		for _, ref := range refs {
-			out = append(out, "["+ref.Name()+"]")
+			out = append(out, ref.Name())
 		}
 		return strings.Join(out, ",")
 	}
-	if got := names(tables.ListCollections(ctx, nil)); got != "[kept]" {
-		t.Errorf("strict ListCollections = %s, want the unnamed table left out", got)
+	var notSupported *dbschema.NotSupportedError
+	if _, err := tables.ListCollections(ctx, nil); !errors.As(err, &notSupported) || !strings.Contains(err.Error(), "a table with an empty name") {
+		t.Errorf("the strict ListCollections must refuse an unnamed table: %v", err)
 	}
-	if got := names(views.ListViews(ctx)); got != "[seen]" {
-		t.Errorf("strict ListViews = %s, want the unnamed view left out", got)
+	if _, err := views.ListViews(ctx); !errors.As(err, &notSupported) || !strings.Contains(err.Error(), "a view with an empty name") {
+		t.Errorf("the strict ListViews must refuse an unnamed view: %v", err)
 	}
-	if got := names(tables.LenientSchema().ListCollections(ctx, nil)); got != "[],[kept]" {
-		t.Errorf("lenient ListCollections = %s, want the unnamed table as a zero reference", got)
+	if got := names(tables.LenientSchema().ListCollections(ctx, nil)); got != "kept" {
+		t.Errorf("lenient ListCollections = %s, want the unnamed table left out", got)
 	}
-	if got := names(views.LenientSchema().ListViews(ctx)); got != "[],[seen]" {
-		t.Errorf("lenient ListViews = %s, want the unnamed view as a zero reference", got)
+	if got := names(views.LenientSchema().ListViews(ctx)); got != "seen" {
+		t.Errorf("lenient ListViews = %s, want the unnamed view left out", got)
 	}
-	ref := dal.NewRootCollectionRef("kept", "")
-	if referrers, err := tables.LenientSchema().ListReferrers(ctx, &ref); err != nil || len(referrers) != 0 {
-		t.Errorf("ListReferrers = %+v, %v: an unnamed table refers to nothing", referrers, err)
+	for db, want := range map[*Database]string{tables: "table", views: "view"} {
+		kinds, err := db.LenientSchema().UnnamedObjects(ctx)
+		if err != nil || strings.Join(kinds, ",") != want {
+			t.Errorf("UnnamedObjects = %v, %v, want [%s]", kinds, err, want)
+		}
+	}
+	kinds, err := openTestDB(t).UnnamedObjects(ctx)
+	if err != nil || len(kinds) != 0 {
+		t.Errorf("UnnamedObjects of a file with none = %v, %v", kinds, err)
+	}
+}
+
+func TestUnnamedObjects_Faults(t *testing.T) {
+	for _, mode := range []string{"query", "scan", "rows"} {
+		t.Run(mode, func(t *testing.T) {
+			db, hooks := sourceHookDB(t)
+			failQueryAt(hooks, `AND name = '' ORDER BY type`, mode)
+			if _, err := db.UnnamedObjects(context.Background()); err == nil {
+				t.Fatal("a fault listing the unnamed objects was ignored")
+			}
+		})
+	}
+}
+
+func TestLenientSchema_IndexOnALeftOutColumnIsLeftOut(t *testing.T) {
+	db := openTestDB(t)
+	execAll(t, db,
+		`CREATE TABLE g (id INTEGER PRIMARY KEY, a INT, b INT GENERATED ALWAYS AS (a * 2) VIRTUAL)`,
+		`CREATE INDEX g_a ON g(a)`,
+		`CREATE INDEX g_b ON g(b)`,
+		`CREATE INDEX g_ab ON g(a, b)`,
+	)
+	ctx := context.Background()
+	lenient := db.LenientSchema()
+	ref := dal.NewRootCollectionRef("g", "")
+	indexNames := func(indexes []dbschema.IndexDef) string {
+		var names []string
+		for _, index := range indexes {
+			names = append(names, index.Name)
+		}
+		sort.Strings(names)
+		return strings.Join(names, ",")
+	}
+	def, err := lenient.DescribeCollection(ctx, &ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := indexNames(def.Indexes); got != "g_a" {
+		t.Errorf("described indexes = %s, want g_a only", got)
+	}
+	if len(def.SourceDefinition.Indexes) != 3 {
+		t.Errorf("the source definition keeps every index: %+v", def.SourceDefinition.Indexes)
+	}
+	indexes, err := lenient.ListIndexes(ctx, &ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := indexNames(indexes); got != "g_a" {
+		t.Errorf("ListIndexes = %s, want g_a only", got)
+	}
+	strictIndexes, err := db.ListIndexes(ctx, &ref)
+	if err != nil || indexNames(strictIndexes) != "g_a,g_ab,g_b" {
+		t.Errorf("the strict ListIndexes lists every index: %v, %v", strictIndexes, err)
+	}
+	missing := dal.NewRootCollectionRef("missing", "")
+	if _, err := lenient.ListIndexes(ctx, &missing); err == nil {
+		t.Error("the lenient ListIndexes of a table that is not there must fail")
+	}
+}
+
+func TestLenientSchema_ListIndexesFault(t *testing.T) {
+	db, hooks := sourceHookDB(t)
+	failQueryAt(hooks, `FROM pragma_index_list`, "query")
+	ref := dal.NewRootCollectionRef("source", "")
+	if _, err := db.LenientSchema().ListIndexes(context.Background(), &ref); err == nil {
+		t.Fatal("a fault listing the indexes was ignored")
+	}
+}
+
+func TestLenientSchema_ViewHasNoConstraintsOrReferrers(t *testing.T) {
+	db := openTestDB(t)
+	execAll(t, db,
+		`CREATE TABLE Parent (id INTEGER PRIMARY KEY)`,
+		`CREATE TABLE child (id INTEGER PRIMARY KEY, parent_id INTEGER REFERENCES PARENT)`,
+		`CREATE VIEW v AS SELECT id FROM Parent`,
+	)
+	ctx := context.Background()
+	lenient := db.LenientSchema()
+	view := dal.NewRootCollectionRef("v", "")
+	if constraints, err := lenient.ListConstraints(ctx, &view); err != nil || len(constraints) != 0 {
+		t.Errorf("ListConstraints(view) = %+v, %v", constraints, err)
+	}
+	if referrers, err := lenient.ListReferrers(ctx, &view); err != nil || len(referrers) != 0 {
+		t.Errorf("ListReferrers(view) = %+v, %v", referrers, err)
+	}
+	parent := dal.NewRootCollectionRef("parent", "") // named in another letter case
+	if referrers, err := lenient.ListReferrers(ctx, &parent); err != nil || len(referrers) != 1 || referrers[0].Collection.Name() != "child" {
+		t.Errorf("ListReferrers(parent) = %+v, %v", referrers, err)
+	}
+}
+
+func TestLenientSchema_ClosingEitherClosesTheSharedPool(t *testing.T) {
+	db := openTestDB(t)
+	lenient := db.LenientSchema()
+	if err := lenient.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ListCollections(context.Background(), nil); err == nil {
+		t.Fatal("the pool the two share is closed")
+	}
+}
+
+func TestFoldASCII(t *testing.T) {
+	if got := foldASCII("PaRent_Ä"); got != "parent_Ä" {
+		t.Fatalf("foldASCII = %q: SQLite's NOCASE folds ASCII letters only", got)
 	}
 }
 
