@@ -16,7 +16,7 @@ import (
 // name a view (see Database.LenientSchema).
 func readSourceDefinition(ctx context.Context, db *sql.DB, table string, lenient bool) (*dbschema.SourceDefinition, error) {
 	if !lenient {
-		if err := rejectHiddenSourceColumns(ctx, db, table); err != nil {
+		if err := rejectHiddenSourceColumns(ctx, db, "DescribeCollection", table); err != nil {
 			return nil, err
 		}
 	}
@@ -63,10 +63,10 @@ func readSourceDefinition(ctx context.Context, db *sql.DB, table string, lenient
 			return nil, fmt.Errorf("dalgo2sqlite: source index scan for %q: %w", table, err)
 		}
 		index.Unique, index.Partial = unique != 0, partial != 0
-		// The primary key of a WITHOUT ROWID table is the table itself: its index
-		// has no row in sqlite_master, and no DDL of its own.
 		var createSQL sql.NullString
 		if err := db.QueryRowContext(ctx, `SELECT sql FROM sqlite_master WHERE type='index' AND name=?`, index.Name).Scan(&createSQL); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			// A missing sqlite_master row is an implicit index (the PRIMARY
+			// KEY of a WITHOUT ROWID table); like a NULL sql it has no DDL.
 			_ = indexes.Close()
 			return nil, fmt.Errorf("dalgo2sqlite: index DDL for %q: %w", index.Name, err)
 		}
@@ -113,8 +113,10 @@ func readSourceDefinition(ctx context.Context, db *sql.DB, table string, lenient
 
 // pragma_table_info omits generated and hidden columns. Until the portable
 // export contract can represent their computation, fail rather than silently
-// publish an incomplete source schema or row.
-func rejectHiddenSourceColumns(ctx context.Context, db *sql.DB, table string) error {
+// publish an incomplete source schema or row. The failure is a typed
+// *dbschema.NotSupportedError so callers can tell "cannot describe this table
+// losslessly" apart from a genuine catalog fault.
+func rejectHiddenSourceColumns(ctx context.Context, db *sql.DB, op, table string) error {
 	rows, err := db.QueryContext(ctx,
 		`SELECT name, hidden FROM pragma_table_xinfo(?) WHERE hidden != 0 ORDER BY cid`, table)
 	if err != nil {
@@ -127,7 +129,11 @@ func rejectHiddenSourceColumns(ctx context.Context, db *sql.DB, table string) er
 		if err := rows.Scan(&name, &hidden); err != nil {
 			return fmt.Errorf("dalgo2sqlite: hidden source column scan for %q: %w", table, err)
 		}
-		return fmt.Errorf("dalgo2sqlite: source table %q has generated or hidden column %q (kind %d), unsupported for lossless export", table, name, hidden)
+		return &dbschema.NotSupportedError{
+			Op:      op,
+			Backend: "dalgo2sqlite",
+			Reason:  fmt.Sprintf("source table %q has generated or hidden column %q (kind %d), unsupported for lossless export", table, name, hidden),
+		}
 	}
 	return rows.Err()
 }

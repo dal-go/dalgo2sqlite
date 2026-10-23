@@ -2,6 +2,7 @@ package dalgo2sqlite
 
 import (
 	"context"
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -256,5 +257,76 @@ func TestGeneratedColumnsFailClosedUntilRepresentable(t *testing.T) {
 	}
 	if _, err := db.OpenSourceRows(ctx, &ref); err == nil || !strings.Contains(err.Error(), "unsupported for lossless export") {
 		t.Fatalf("OpenSourceRows must reject omitted generated column: %v", err)
+	}
+}
+
+func TestGeneratedColumnsReturnTypedNotSupported(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	if _, err := db.sqlDB.ExecContext(ctx, `CREATE TABLE generated (id INTEGER, doubled INTEGER GENERATED ALWAYS AS (id * 2) STORED)`); err != nil {
+		t.Fatal(err)
+	}
+	ref := dal.NewRootCollectionRef("generated", "")
+	_, err := db.DescribeCollection(ctx, &ref)
+	var ns *dbschema.NotSupportedError
+	if !errors.As(err, &ns) || ns.Op != "DescribeCollection" || !errors.Is(err, dal.ErrNotSupported) {
+		t.Fatalf("DescribeCollection want typed NotSupportedError, got %T %v", err, err)
+	}
+	_, err = db.OpenSourceRows(ctx, &ref)
+	if !errors.As(err, &ns) || ns.Op != "OpenSourceRows" {
+		t.Fatalf("OpenSourceRows want typed NotSupportedError, got %T %v", err, err)
+	}
+}
+
+func TestDescribeWithoutRowidImplicitIndexes(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	for _, statement := range []string{
+		`CREATE TABLE t (code TEXT PRIMARY KEY, name TEXT) WITHOUT ROWID`,
+		`CREATE TABLE comp (a TEXT, b INTEGER, c TEXT, PRIMARY KEY (a, b)) WITHOUT ROWID`,
+		`CREATE TABLE uniq (code TEXT PRIMARY KEY, email TEXT UNIQUE) WITHOUT ROWID`,
+		`CREATE TABLE rowid_uniq (id INTEGER PRIMARY KEY, email TEXT UNIQUE, code TEXT, UNIQUE(code, email))`,
+	} {
+		if _, err := db.sqlDB.ExecContext(ctx, statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cases := []struct {
+		table   string
+		pk      []string
+		indexes int
+	}{
+		{"t", []string{"code"}, 1},
+		{"comp", []string{"a", "b"}, 1},
+		{"uniq", []string{"code"}, 2},
+		{"rowid_uniq", []string{"id"}, 2},
+	}
+	for _, c := range cases {
+		t.Run(c.table, func(t *testing.T) {
+			ref := dal.NewRootCollectionRef(c.table, "")
+			def, err := db.DescribeCollection(ctx, &ref)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(def.PrimaryKey) != len(c.pk) {
+				t.Fatalf("pk=%v want %v", def.PrimaryKey, c.pk)
+			}
+			for i, name := range c.pk {
+				if string(def.PrimaryKey[i]) != name {
+					t.Fatalf("pk=%v want %v", def.PrimaryKey, c.pk)
+				}
+			}
+			if len(def.SourceDefinition.Indexes) < c.indexes {
+				t.Fatalf("source indexes=%+v", def.SourceDefinition.Indexes)
+			}
+			for _, index := range def.SourceDefinition.Indexes {
+				if strings.HasPrefix(index.Name, "sqlite_autoindex_") && index.CreateSQL != "" {
+					t.Fatalf("implicit index %q must have no DDL: %q", index.Name, index.CreateSQL)
+				}
+				if len(index.Columns) == 0 {
+					t.Fatalf("index %q lost its terms", index.Name)
+				}
+			}
+		})
 	}
 }
