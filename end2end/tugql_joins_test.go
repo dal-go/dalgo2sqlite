@@ -14,16 +14,16 @@ import (
 	"testing"
 
 	"github.com/dal-go/dalgo/dal"
-	"github.com/dal-go/dalgo/dtql"
+	"github.com/dal-go/dalgo/tugql"
 	"github.com/dal-go/dalgo2sql"
 	"github.com/dal-go/dalgo2sqlite"
 	_ "modernc.org/sqlite"
 )
 
-// TestDTQLNestedJoinChinook is the package's reproducible, cross-module
+// TestTugQLNestedJoinChinook is the package's reproducible, cross-module
 // acceptance journey: load a small Chinook-shaped database, parse the public
-// DTQL document, and execute the nested relation through the SQLite adapter.
-func TestDTQLNestedJoinChinook(t *testing.T) {
+// TugQL document, and execute the nested relation through the SQLite adapter.
+func TestTugQLNestedJoinChinook(t *testing.T) {
 	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "chinook-mini.db")
 	seed, err := os.ReadFile(filepath.Join("..", "testdata", "joins", "chinook-mini.sql"))
@@ -42,17 +42,17 @@ func TestDTQLNestedJoinChinook(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	queryYAML, err := os.ReadFile(filepath.Join("..", "testdata", "joins", "chinook-nested.dtql.yaml"))
+	queryYAML, err := os.ReadFile(filepath.Join("..", "testdata", "joins", "chinook-nested.tugql.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	const canonicalQueryDigest = "2eeef93ffb02a4272f06f6ab909b2db4cbbb9a2a1df280ae4c47851534f583b3"
 	if digest := fmt.Sprintf("%x", sha256.Sum256(queryYAML)); digest != canonicalQueryDigest {
-		t.Fatalf("DTQL fixture digest = %s, want %s", digest, canonicalQueryDigest)
+		t.Fatalf("TugQL fixture digest = %s, want %s", digest, canonicalQueryDigest)
 	}
-	query, err := dtql.Deserialize(queryYAML)
+	query, err := tugql.Deserialize(queryYAML)
 	if err != nil {
-		t.Fatalf("parse DTQL: %v", err)
+		t.Fatalf("parse TugQL: %v", err)
 	}
 	db, err := dalgo2sqlite.NewDatabaseWithOptions(dbPath, dal.NewSchema(nil, nil), dalgo2sql.DbOptions{
 		StructuredQueryDialect: "sqlite",
@@ -65,7 +65,7 @@ func TestDTQLNestedJoinChinook(t *testing.T) {
 	if err != nil {
 		t.Fatalf("execute nested JOIN: %v", err)
 	}
-	got := readDTQLJoinRows(t, reader)
+	got := readTugQLJoinRows(t, reader)
 	wantBytes, err := os.ReadFile(filepath.Join("..", "testdata", "joins", "chinook-nested.rows.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -82,7 +82,7 @@ func TestDTQLNestedJoinChinook(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		transactionRows := readDTQLJoinRows(t, reader)
+		transactionRows := readTugQLJoinRows(t, reader)
 		if !reflect.DeepEqual(transactionRows, want) {
 			t.Errorf("transaction rows = %#v, want %#v", transactionRows, want)
 		}
@@ -93,19 +93,19 @@ func TestDTQLNestedJoinChinook(t *testing.T) {
 
 	// A native SQLite plan may ignore physical hints, while returning exactly
 	// the same ordered logical result as the unhinted query.
-	hintedYAML, err := os.ReadFile(filepath.Join("..", "testdata", "joins", "chinook-hinted.dtql.yaml"))
+	hintedYAML, err := os.ReadFile(filepath.Join("..", "testdata", "joins", "chinook-hinted.tugql.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	hintedQuery, err := dtql.Deserialize(hintedYAML)
+	hintedQuery, err := tugql.Deserialize(hintedYAML)
 	if err != nil {
-		t.Fatalf("parse hinted DTQL: %v", err)
+		t.Fatalf("parse hinted TugQL: %v", err)
 	}
 	hintedReader, err := db.ExecuteQueryToRecordsReader(ctx, hintedQuery)
 	if err != nil {
 		t.Fatalf("execute hinted JOIN: %v", err)
 	}
-	if hintedRows := readDTQLJoinRows(t, hintedReader); !reflect.DeepEqual(hintedRows, want) {
+	if hintedRows := readTugQLJoinRows(t, hintedReader); !reflect.DeepEqual(hintedRows, want) {
 		t.Errorf("hinted rows = %#v, want %#v", hintedRows, want)
 	}
 	if err := db.RunReadonlyTransaction(ctx, func(ctx context.Context, tx dal.ReadTransaction) error {
@@ -113,7 +113,7 @@ func TestDTQLNestedJoinChinook(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if hintedRows := readDTQLJoinRows(t, reader); !reflect.DeepEqual(hintedRows, want) {
+		if hintedRows := readTugQLJoinRows(t, reader); !reflect.DeepEqual(hintedRows, want) {
 			t.Errorf("hinted transaction rows = %#v, want %#v", hintedRows, want)
 		}
 		return nil
@@ -121,13 +121,13 @@ func TestDTQLNestedJoinChinook(t *testing.T) {
 		t.Fatalf("read transaction hinted JOIN: %v", err)
 	}
 
-	wildcardYAML, err := os.ReadFile(filepath.Join("..", "testdata", "joins", "chinook-wildcard.dtql.yaml"))
+	wildcardYAML, err := os.ReadFile(filepath.Join("..", "testdata", "joins", "chinook-wildcard.tugql.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	wildcardQuery, err := dtql.Deserialize(wildcardYAML)
+	wildcardQuery, err := tugql.Deserialize(wildcardYAML)
 	if err != nil {
-		t.Fatalf("parse wildcard DTQL: %v", err)
+		t.Fatalf("parse wildcard TugQL: %v", err)
 	}
 	wantWildcard := []map[string]any{
 		{"invoice_id": float64(3), "FirstName": "Bea", "employee": nil},
@@ -138,7 +138,7 @@ func TestDTQLNestedJoinChinook(t *testing.T) {
 	if err != nil {
 		t.Fatalf("execute wildcard JOIN: %v", err)
 	}
-	if wildcardRows := readDTQLJoinRows(t, wildcardReader); !reflect.DeepEqual(wildcardRows, wantWildcard) {
+	if wildcardRows := readTugQLJoinRows(t, wildcardReader); !reflect.DeepEqual(wildcardRows, wantWildcard) {
 		t.Errorf("wildcard rows = %#v, want %#v", wildcardRows, wantWildcard)
 	}
 	if err := db.RunReadonlyTransaction(ctx, func(ctx context.Context, tx dal.ReadTransaction) error {
@@ -146,7 +146,7 @@ func TestDTQLNestedJoinChinook(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if wildcardRows := readDTQLJoinRows(t, reader); !reflect.DeepEqual(wildcardRows, wantWildcard) {
+		if wildcardRows := readTugQLJoinRows(t, reader); !reflect.DeepEqual(wildcardRows, wantWildcard) {
 			t.Errorf("transaction wildcard rows = %#v, want %#v", wildcardRows, wantWildcard)
 		}
 		return nil
@@ -155,7 +155,7 @@ func TestDTQLNestedJoinChinook(t *testing.T) {
 	}
 }
 
-func TestDTQLJoinFixtureManifest(t *testing.T) {
+func TestTugQLJoinFixtureManifest(t *testing.T) {
 	const directory = "../testdata/joins"
 	data, err := os.ReadFile(filepath.Join(directory, "manifest.json"))
 	if err != nil {
@@ -169,7 +169,7 @@ func TestDTQLJoinFixtureManifest(t *testing.T) {
 	if err := json.Unmarshal(data, &manifest); err != nil {
 		t.Fatal(err)
 	}
-	const canonicalSourceCommit = "c999c7372fd944c57e89dad7e75f9f42c8afaae1"
+	const canonicalSourceCommit = "56b804de624ade79efdc3d61970da7ac7562dc68"
 	if manifest.SchemaVersion != 1 || manifest.SourceCommit != canonicalSourceCommit || len(manifest.Files) == 0 {
 		t.Fatalf("invalid fixture manifest: %#v", manifest)
 	}
@@ -191,10 +191,10 @@ func TestDTQLJoinFixtureManifest(t *testing.T) {
 	}
 }
 
-func TestDTQLJoinNegativeFixtures(t *testing.T) {
+func TestTugQLJoinNegativeFixtures(t *testing.T) {
 	for _, name := range []string{"forward-alias", "unknown-alias"} {
 		t.Run(name, func(t *testing.T) {
-			query, err := os.ReadFile(filepath.Join("..", "testdata", "joins", name+".dtql.yaml"))
+			query, err := os.ReadFile(filepath.Join("..", "testdata", "joins", name+".tugql.yaml"))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -206,7 +206,7 @@ func TestDTQLJoinNegativeFixtures(t *testing.T) {
 			if err := json.Unmarshal(expected, &want); err != nil {
 				t.Fatal(err)
 			}
-			_, err = dtql.Deserialize(query)
+			_, err = tugql.Deserialize(query)
 			var diagnostic *dal.JoinValidationError
 			if !errors.As(err, &diagnostic) {
 				t.Fatalf("want JOIN diagnostic, got %v", err)
@@ -218,7 +218,7 @@ func TestDTQLJoinNegativeFixtures(t *testing.T) {
 	}
 }
 
-func readDTQLJoinRows(t *testing.T, reader dal.RecordsReader) []map[string]any {
+func readTugQLJoinRows(t *testing.T, reader dal.RecordsReader) []map[string]any {
 	t.Helper()
 	defer func() { _ = reader.Close() }()
 	var rows []map[string]any

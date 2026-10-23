@@ -41,10 +41,10 @@ binding.  The migration was done because:
 The `cgo_enabled: true` flag can be removed from this repo's CI workflow and
 from any downstream workflow that no longer needs cgo for other reasons.
 
-## DTQL JOIN acceptance
+## TugQL JOIN acceptance
 
 The checked-in `testdata/joins` directory contains a small Chinook-shaped
-SQLite seed, the canonical nested Invoice/Customer/Employee DTQL query, and
+SQLite seed, the canonical nested Invoice/Customer/Employee TugQL query, and
 expected rows. The test loads the seed into a temporary database, runs the
 query through both the database and read-transaction entry points, and checks
 ordered results and LEFT JOIN null extension. A second query carries independent
@@ -56,5 +56,5 @@ and the expected diagnostics for malformed JOIN references.
 Run the complete acceptance journey from this repository's root:
 
 ```sh
-go test ./end2end -run 'TestDTQL(NestedJoinChinook|JoinFixtureManifest|JoinNegativeFixtures)' -count=1
+go test ./end2end -run 'TestTugQL(NestedJoinChinook|JoinFixtureManifest|JoinNegativeFixtures)' -count=1
 ```
