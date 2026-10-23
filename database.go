@@ -41,6 +41,35 @@ type Database struct {
 	dal.DB         // delegate for the dal.DB surface
 	sqlDB  *sql.DB // direct handle for DDL + PRAGMA queries
 	dbPath string  // remembered for diagnostics
+
+	// lenient is whether the schema reads describe the file the way SQLite
+	// lists it rather than refuse what a lossless export cannot carry (see
+	// LenientSchema).
+	lenient bool
+}
+
+// LenientSchema returns a Database over the same connection whose schema reads
+// describe a file the way SQLite itself lists it, for a reader that shows a
+// database to a person (a scan, a viewer) rather than copies it:
+//
+//   - DescribeCollection describes a view too, by the columns SQLite lists for it;
+//   - a column whose declared type has no portable type (none at all, or one such
+//     as JSON or UUID) is [dbschema.Null] instead of failing the description, and
+//     its declared type stays in SourceDefinition;
+//   - generated columns and the hidden columns of a virtual table are left out of
+//     the description, as PRAGMA table_info leaves them out, instead of failing it;
+//   - a table or a view with an empty name is left out of ListCollections and
+//     ListViews (UnnamedObjects lists them), where the strict reader refuses it;
+//   - an index on a column the description leaves out is left out of Indexes and
+//     ListIndexes; SourceDefinition.Indexes keeps it.
+//
+// The Database it is called on is unchanged: its schema reads still refuse what a
+// lossless export cannot represent. The two share one connection pool, so closing
+// either closes both: close the Database that owns the pool, not the lenient one.
+func (d *Database) LenientSchema() *Database {
+	lenient := *d
+	lenient.lenient = true
+	return &lenient
 }
 
 // NewDatabase opens (or creates) the SQLite file at dbPath using

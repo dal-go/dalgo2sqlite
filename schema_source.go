@@ -11,13 +11,18 @@ import (
 
 // readSourceDefinition retains SQLite catalog details that the portable
 // CollectionDef intentionally cannot model. SQL text is metadata, never
-// executed by this reader or by a generic exporter.
-func readSourceDefinition(ctx context.Context, db *sql.DB, table string) (*dbschema.SourceDefinition, error) {
-	if err := rejectHiddenSourceColumns(ctx, db, "DescribeCollection", table); err != nil {
-		return nil, err
+// executed by this reader or by a generic exporter. With lenient a table
+// with generated or hidden columns is described without them, and table may
+// name a view (see Database.LenientSchema).
+func readSourceDefinition(ctx context.Context, db *sql.DB, table string, lenient bool) (*dbschema.SourceDefinition, error) {
+	if !lenient {
+		if err := rejectHiddenSourceColumns(ctx, db, "DescribeCollection", table); err != nil {
+			return nil, err
+		}
 	}
 	source := &dbschema.SourceDefinition{Dialect: "sqlite"}
-	if err := db.QueryRowContext(ctx, `SELECT sql FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&source.CreateSQL); err != nil {
+	// Tables and views share one namespace: a name is one or the other.
+	if err := db.QueryRowContext(ctx, `SELECT sql FROM sqlite_master WHERE type IN ('table', 'view') AND name=?`, table).Scan(&source.CreateSQL); err != nil {
 		return nil, fmt.Errorf("dalgo2sqlite: source DDL for %q: %w", table, err)
 	}
 	cols, err := db.QueryContext(ctx,

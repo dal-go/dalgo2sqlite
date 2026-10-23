@@ -270,7 +270,7 @@ func (a *sqliteAlterApplier) ApplyModifyField(ctx context.Context, name dal.Fiel
 	return nil
 }
 
-// readCollectionDefViaTx is a tx-aware variant of describeCollectionImpl.
+// readCollectionDefViaTx is a tx-aware variant of describeCollection.
 // Used by ApplyModifyField so we don't read inconsistent state outside
 // the enclosing transaction.
 //
