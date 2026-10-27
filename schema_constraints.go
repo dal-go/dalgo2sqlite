@@ -62,6 +62,9 @@ func (d *Database) ListConstraints(ctx context.Context, ref *dal.CollectionRef) 
 	if err := fkRows.Err(); err != nil {
 		return nil, fmt.Errorf("dalgo2sqlite: ListConstraints fk rows: %w", err)
 	}
+	// Release the foreign-key rows before the next query: a pool limited to one
+	// open connection serves uniqueConstraints only once they are closed.
+	_ = fkRows.Close()
 	unique, err := uniqueConstraints(ctx, d.sqlDB, ref.Name())
 	if err != nil {
 		return nil, err

@@ -55,19 +55,36 @@ func readSourceDefinition(ctx context.Context, db *sql.DB, table string, lenient
 	if err != nil {
 		return nil, fmt.Errorf("dalgo2sqlite: source indexes for %q: %w", table, err)
 	}
+	// Drain and close the index rows before reading each index's DDL and terms:
+	// those are nested queries, and a pool limited to one open connection serves
+	// them only once these rows have released it.
+	type listedIndex struct {
+		name    string
+		unique  int
+		origin  string
+		partial int
+	}
+	var listed []listedIndex
 	for indexes.Next() {
-		var index dbschema.SourceIndexDef
-		var unique, partial int
-		if err := indexes.Scan(&index.Name, &unique, &index.Origin, &partial); err != nil {
+		var index listedIndex
+		if err := indexes.Scan(&index.name, &index.unique, &index.origin, &index.partial); err != nil {
 			_ = indexes.Close()
 			return nil, fmt.Errorf("dalgo2sqlite: source index scan for %q: %w", table, err)
 		}
-		index.Unique, index.Partial = unique != 0, partial != 0
+		listed = append(listed, index)
+	}
+	if err := indexes.Err(); err != nil {
+		_ = indexes.Close()
+		return nil, fmt.Errorf("dalgo2sqlite: source index rows for %q: %w", table, err)
+	}
+	_ = indexes.Close()
+	for _, entry := range listed {
+		index := dbschema.SourceIndexDef{Name: entry.name, Origin: entry.origin}
+		index.Unique, index.Partial = entry.unique != 0, entry.partial != 0
 		var createSQL sql.NullString
 		if err := db.QueryRowContext(ctx, `SELECT sql FROM sqlite_master WHERE type='index' AND name=?`, index.Name).Scan(&createSQL); err != nil && !errors.Is(err, sql.ErrNoRows) {
 			// A missing sqlite_master row is an implicit index (the PRIMARY
 			// KEY of a WITHOUT ROWID table); like a NULL sql it has no DDL.
-			_ = indexes.Close()
 			return nil, fmt.Errorf("dalgo2sqlite: index DDL for %q: %w", index.Name, err)
 		}
 		if createSQL.Valid {
@@ -76,7 +93,6 @@ func readSourceDefinition(ctx context.Context, db *sql.DB, table string, lenient
 		terms, err := db.QueryContext(ctx,
 			`SELECT seqno, name, "desc", coll, "key" FROM pragma_index_xinfo(?) ORDER BY seqno`, index.Name)
 		if err != nil {
-			_ = indexes.Close()
 			return nil, fmt.Errorf("dalgo2sqlite: index terms for %q: %w", index.Name, err)
 		}
 		for terms.Next() {
@@ -85,7 +101,6 @@ func readSourceDefinition(ctx context.Context, db *sql.DB, table string, lenient
 			var descending, key int
 			if err := terms.Scan(&term.Position, &name, &descending, &collation, &key); err != nil {
 				_ = terms.Close()
-				_ = indexes.Close()
 				return nil, fmt.Errorf("dalgo2sqlite: index term scan for %q: %w", index.Name, err)
 			}
 			if name.Valid {
@@ -97,17 +112,11 @@ func readSourceDefinition(ctx context.Context, db *sql.DB, table string, lenient
 		}
 		if err := terms.Err(); err != nil {
 			_ = terms.Close()
-			_ = indexes.Close()
 			return nil, fmt.Errorf("dalgo2sqlite: index term rows for %q: %w", index.Name, err)
 		}
 		_ = terms.Close()
 		source.Indexes = append(source.Indexes, index)
 	}
-	if err := indexes.Err(); err != nil {
-		_ = indexes.Close()
-		return nil, fmt.Errorf("dalgo2sqlite: source index rows for %q: %w", table, err)
-	}
-	_ = indexes.Close()
 	return source, nil
 }
 
@@ -147,12 +156,22 @@ func (d *Database) ListSourceViews(ctx context.Context) ([]dbschema.SourceViewDe
 		return nil, fmt.Errorf("dalgo2sqlite: source views: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
+	// Read every view before querying its columns: a pool limited to one open
+	// connection cannot serve the nested query while these rows hold it.
 	var views []dbschema.SourceViewDef
 	for rows.Next() {
 		var view dbschema.SourceViewDef
 		if err := rows.Scan(&view.Name, &view.CreateSQL); err != nil {
 			return nil, fmt.Errorf("dalgo2sqlite: source view scan: %w", err)
 		}
+		views = append(views, view)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("dalgo2sqlite: source view rows: %w", err)
+	}
+	_ = rows.Close()
+	for i := range views {
+		view := &views[i]
 		columns, err := d.sqlDB.QueryContext(ctx,
 			`SELECT name FROM pragma_table_info(?) ORDER BY cid`, view.Name)
 		if err != nil {
@@ -171,7 +190,6 @@ func (d *Database) ListSourceViews(ctx context.Context) ([]dbschema.SourceViewDe
 			return nil, fmt.Errorf("dalgo2sqlite: source view column rows for %q: %w", view.Name, err)
 		}
 		_ = columns.Close()
-		views = append(views, view)
 	}
-	return views, rows.Err()
+	return views, nil
 }

@@ -137,7 +137,15 @@ func describeCollection(ctx context.Context, db *sql.DB, name string, lenient bo
 		return nil, fmt.Errorf("dalgo2sqlite: DescribeCollection probe %q: %w", name, probeErr)
 	}
 
-	// 2. pragma_table_info.
+	// 2. Time-column markers. This is an independent query and runs before the
+	// pragma_table_info rows below: a pool limited to one open connection
+	// cannot serve a query while those rows still hold that connection.
+	timeMarkers, tmErr := readTimeMarkers(ctx, db, name)
+	if tmErr != nil {
+		return nil, tmErr
+	}
+
+	// 3. pragma_table_info.
 	rows, err := db.QueryContext(ctx,
 		`SELECT name, type, "notnull", dflt_value, pk FROM pragma_table_info(?)`,
 		name,
@@ -147,14 +155,11 @@ func describeCollection(ctx context.Context, db *sql.DB, name string, lenient bo
 	}
 	defer func() { _ = rows.Close() }()
 
-	// 3. Time-column markers.
-	timeMarkers, tmErr := readTimeMarkers(ctx, db, name)
-	if tmErr != nil {
-		return nil, tmErr
-	}
-
 	var fields []dbschema.FieldDef
 	var pkEntries []pkEntry
+	// The AUTOINCREMENT probe is a query of its own: remember the field that
+	// needs it and ask once the rows above are drained and closed.
+	autoIncrementField := -1
 
 	for rows.Next() {
 		var (
@@ -197,7 +202,7 @@ func describeCollection(ctx context.Context, db *sql.DB, name string, lenient bo
 			Nullable:  nullable,
 		}
 		if t == dbschema.Int && pkPosition == 1 {
-			f.AutoIncrement, _ = tableHasAutoIncrement(ctx, db, name)
+			autoIncrementField = len(fields)
 		}
 		fields = append(fields, f)
 		if pkPosition > 0 {
@@ -206,6 +211,10 @@ func describeCollection(ctx context.Context, db *sql.DB, name string, lenient bo
 	}
 	if rowsErr := rows.Err(); rowsErr != nil {
 		return nil, fmt.Errorf("dalgo2sqlite: pragma_table_info rows: %w", rowsErr)
+	}
+	_ = rows.Close()
+	if autoIncrementField >= 0 {
+		fields[autoIncrementField].AutoIncrement, _ = tableHasAutoIncrement(ctx, db, name)
 	}
 
 	sortPKByOrder(pkEntries)
@@ -311,20 +320,33 @@ func listIndexesImpl(ctx context.Context, db *sql.DB, name string) ([]dbschema.I
 	}
 	defer func() { _ = rows.Close() }()
 
-	var out []dbschema.IndexDef
+	// Read the index list before querying the fields of each index: on a pool
+	// limited to one open connection, a nested query waits for the rows here
+	// to release it, and those rows only release it when drained.
+	type listedIndex struct {
+		name   string
+		unique int
+		origin string
+	}
+	var listed []listedIndex
 	for rows.Next() {
-		var (
-			ixName string
-			unique int
-			origin string
-		)
-		if scanErr := rows.Scan(&ixName, &unique, &origin); scanErr != nil {
+		var index listedIndex
+		if scanErr := rows.Scan(&index.name, &index.unique, &index.origin); scanErr != nil {
 			return nil, fmt.Errorf("dalgo2sqlite: pragma_index_list scan: %w", scanErr)
 		}
-		if origin == "pk" {
+		listed = append(listed, index)
+	}
+	if rowsErr := rows.Err(); rowsErr != nil {
+		return nil, fmt.Errorf("dalgo2sqlite: pragma_index_list rows: %w", rowsErr)
+	}
+	_ = rows.Close()
+
+	var out []dbschema.IndexDef
+	for _, index := range listed {
+		if index.origin == "pk" {
 			continue
 		}
-		fields, fErr := readIndexFields(ctx, db, ixName)
+		fields, fErr := readIndexFields(ctx, db, index.name)
 		if fErr != nil {
 			return nil, fErr
 		}
@@ -334,13 +356,13 @@ func listIndexesImpl(ctx context.Context, db *sql.DB, name string) ([]dbschema.I
 			continue
 		}
 		out = append(out, dbschema.IndexDef{
-			Name:       ixName,
+			Name:       index.name,
 			Collection: name,
 			Fields:     fields,
-			Unique:     unique != 0,
+			Unique:     index.unique != 0,
 		})
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 func readIndexFields(ctx context.Context, db *sql.DB, indexName string) ([]dal.FieldName, error) {
