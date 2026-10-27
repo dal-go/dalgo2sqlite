@@ -66,6 +66,53 @@ func TestDescribeCollection_ForeignKeys(t *testing.T) {
 	}
 }
 
+// TestDescribeCollection_ForeignKeys_RefusingBarePragma reads the schema over a
+// connection that answers a bare PRAGMA statement with an error while serving
+// the same value through the table-valued function, as a read-only connection
+// may. The enforcement state must still be reported, and the keys resolved.
+func TestDescribeCollection_ForeignKeys_RefusingBarePragma(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	_, db := newHookDB(t, &driverHooks{
+		queryHook: func(_ context.Context, q string, _ []driver.NamedValue) (driver.Rows, error, bool) {
+			if strings.HasPrefix(strings.ToUpper(strings.TrimSpace(q)), "PRAGMA") {
+				return nil, errors.New("HTTP status 403: Forbidden"), true
+			}
+			return nil, nil, false
+		},
+	})
+	for _, statement := range []string{
+		`CREATE TABLE parent (a INTEGER, b INTEGER, PRIMARY KEY (a, b))`,
+		`CREATE TABLE child (a INTEGER, b INTEGER,
+		  FOREIGN KEY (a, b) REFERENCES parent(a, b) ON UPDATE RESTRICT ON DELETE CASCADE)`,
+		`PRAGMA foreign_keys=ON`,
+	} {
+		if _, err := db.sqlDB.ExecContext(ctx, statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The premise: this connection refuses the statement form the reader used
+	// to rely on, so a passing read below is the SQL form's doing.
+	if _, err := db.sqlDB.QueryContext(ctx, `PRAGMA foreign_keys`); err == nil {
+		t.Fatal("the fixture must refuse a bare PRAGMA statement")
+	}
+	ref := dal.NewRootCollectionRef("child", "")
+	def, err := db.DescribeCollection(ctx, &ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(def.ForeignKeys) != 1 {
+		t.Fatalf("foreign keys: %+v", def.ForeignKeys)
+	}
+	fk := def.ForeignKeys[0]
+	if fk.Enforcement != dbschema.ForeignKeyEnforcementEnabled {
+		t.Fatalf("enforcement = %s, want enabled", fk.Enforcement)
+	}
+	if fk.ReferencedCollection != "parent" || len(fk.Fields) != 2 || len(fk.ReferencedFields) != 2 {
+		t.Fatalf("composite foreign key: %+v", fk)
+	}
+}
+
 func TestReadForeignKeys_Errors(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -79,11 +126,11 @@ func TestReadForeignKeys_Errors(t *testing.T) {
 		}
 	})
 
-	t.Run("foreign_keys_pragma_error", func(t *testing.T) {
+	t.Run("foreign_keys_state_query_error", func(t *testing.T) {
 		sqlDB, _ := newHookDB(t, &driverHooks{
 			queryHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Rows, error, bool) {
-				if strings.Contains(q, "PRAGMA foreign_keys") {
-					return nil, errors.New("pragma error"), true
+				if strings.Contains(q, "pragma_foreign_keys") {
+					return nil, errors.New("state query error"), true
 				}
 				return nil, nil, false
 			},
@@ -207,4 +254,3 @@ func TestReadForeignKeys_Errors(t *testing.T) {
 		}
 	})
 }
-

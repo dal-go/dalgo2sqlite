@@ -17,7 +17,10 @@ func readForeignKeys(ctx context.Context, db *sql.DB, table string) ([]dbschema.
 	}
 	defer func() { _ = conn.Close() }()
 	var enabled int
-	if err := conn.QueryRowContext(ctx, `PRAGMA foreign_keys`).Scan(&enabled); err != nil {
+	// The state is read as a query over the table-valued function rather than a
+	// bare PRAGMA statement: a read-only connection, as a read-only token gives,
+	// refuses the statement form while accepting this SELECT of the same value.
+	if err := conn.QueryRowContext(ctx, `SELECT foreign_keys FROM pragma_foreign_keys`).Scan(&enabled); err != nil {
 		return nil, fmt.Errorf("dalgo2sqlite: foreign keys enforcement: %w", err)
 	}
 	state := dbschema.ForeignKeyEnforcementDisabled
