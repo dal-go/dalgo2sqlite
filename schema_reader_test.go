@@ -384,7 +384,7 @@ func TestDescribeCollection_Errors(t *testing.T) {
 	t.Run("read_foreign_keys_error", func(t *testing.T) {
 		_, db := newHookDB(t, &driverHooks{
 			queryHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Rows, error, bool) {
-				if strings.Contains(q, "PRAGMA foreign_keys") {
+				if strings.Contains(q, "pragma_foreign_keys") {
 					return nil, errors.New("foreign keys failed"), true
 				}
 				return nil, nil, false
