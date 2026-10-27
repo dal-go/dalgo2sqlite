@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/dal-go/dalgo/dal"
 	"github.com/dal-go/dalgo/dbschema"
@@ -492,3 +493,71 @@ func TestListIndexes_Errors(t *testing.T) {
 	})
 }
 
+// TestListIndexes_IndexListIteratorFailure covers a failing cursor of the
+// pragma_index_list result set: whether it fails before any index is read or
+// after some, ListIndexes must wrap the failure, must not go on to query the
+// fields of an index it did not finish listing, and must release the pool.
+func TestListIndexes_IndexListIteratorFailure(t *testing.T) {
+	t.Parallel()
+	ref := dal.NewRootCollectionRef("users", "")
+
+	for _, tc := range []struct {
+		name string
+		rows [][]driver.Value
+	}{
+		{name: "zero_indexes"},
+		{
+			name: "partial_indexes",
+			rows: [][]driver.Value{{"ix_email", int64(0), "c"}},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			iterErr := errors.New("index list iteration failed")
+			indexInfoQueries := 0
+			sqlDB, db := newHookDB(t, &driverHooks{
+				queryHook: func(ctx context.Context, q string, args []driver.NamedValue) (driver.Rows, error, bool) {
+					if strings.Contains(q, "pragma_index_list") {
+						return &mockRows{
+							cols:    []string{"name", "unique", "origin"},
+							rows:    tc.rows,
+							nextErr: iterErr,
+						}, nil, true
+					}
+					if strings.Contains(q, "pragma_index_info") {
+						indexInfoQueries++
+						return nil, errors.New("index fields read after a failed index list"), true
+					}
+					return nil, nil, false
+				},
+			})
+			// One connection makes an unreleased result set observable below.
+			sqlDB.SetMaxOpenConns(1)
+
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			indexes, err := db.ListIndexes(ctx, &ref)
+			if err == nil {
+				t.Fatal("expected an error from the failed index list iterator")
+			}
+			if !errors.Is(err, iterErr) {
+				t.Errorf("error must wrap the iterator failure, got %v", err)
+			}
+			if !strings.Contains(err.Error(), "pragma_index_list rows") {
+				t.Errorf("error must name the failing step, got %v", err)
+			}
+			if indexes != nil {
+				t.Errorf("no indexes must be returned on error, got %v", indexes)
+			}
+			if indexInfoQueries != 0 {
+				t.Errorf("pragma_index_info queried %d times after the failed index list", indexInfoQueries)
+			}
+
+			var one int
+			if err := sqlDB.QueryRowContext(ctx, "SELECT 1").Scan(&one); err != nil {
+				t.Fatalf("pool was not released after the failed index list: %v", err)
+			}
+		})
+	}
+}

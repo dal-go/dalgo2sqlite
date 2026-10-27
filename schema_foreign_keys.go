@@ -56,6 +56,9 @@ func readForeignKeys(ctx context.Context, db *sql.DB, table string) ([]dbschema.
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("dalgo2sqlite: foreign key rows: %w", err)
 	}
+	// The rows are drained; close them before the queries below rather than
+	// relying on the defer, so a nested read never waits on this result set.
+	_ = rows.Close()
 	// SQLite finds the table a foreign key names in any letter case: the key names
 	// the table as the database spells it, when it holds one.
 	spelled, err := tableSpellings(ctx, conn, keys)
