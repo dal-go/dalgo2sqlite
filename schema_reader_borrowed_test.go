@@ -252,7 +252,8 @@ func TestSchemaReaderConstructors_ExposeOnlySchemaReader(t *testing.T) {
 			if err != nil {
 				t.Fatalf("constructor: %v", err)
 			}
-			var _ dbschema.SchemaReader = reader // the only guaranteed capability
+			// The declared return type already guarantees dbschema.SchemaReader;
+			// no other capability may be exposed.
 			if _, ok := reader.(io.Closer); ok {
 				t.Error("the schema reader must not close the caller's pool")
 			}
