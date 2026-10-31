@@ -469,13 +469,19 @@ func TestTableReadCloseCancelsIndependentReadContext(t *testing.T) {
 	}
 	queryCancel()
 	select {
-	case <-queryDone:
+	case err := <-queryDone:
+		if err == nil {
+			t.Fatal("cancelled native query returned success")
+		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("owned query cleanup stalled")
 	}
 	if stalled {
 		select {
-		case <-closeDone:
+		case err := <-closeDone:
+			if err != nil {
+				t.Fatal(err)
+			}
 		case <-time.After(time.Second):
 			t.Fatal("owned Close cleanup stalled")
 		}

@@ -260,8 +260,12 @@ func TestTableReadCancellationAndConcurrentClose(t *testing.T) {
 }
 
 func TestTableReadRejectsInvalidInputAndZeroValues(t *testing.T) {
+	nilContext := tableReadNilContext(t)
+	if nilContext != nil {
+		t.Fatal("negative context fixture must be nil")
+	}
 	limits := TableReadLimits{MaxBytes: 256 * 1024, MaxColumns: 128}
-	if s, err := OpenTableRead(nil, "/missing", "main", "orders", limits); s != nil || err == nil {
+	if s, err := OpenTableRead(nilContext, "/missing", "main", "orders", limits); s != nil || err == nil {
 		t.Fatal("nil context admitted")
 	}
 	for _, file := range []string{"relative.db", "/tmp/../missing.db", ""} {
@@ -295,7 +299,7 @@ func TestTableReadRejectsInvalidInputAndZeroValues(t *testing.T) {
 	}
 	file := tableReadFixture(t, "CREATE TABLE orders(id INTEGER)")
 	span := mustTableSpan(t, context.Background(), file, "orders", limits)
-	if _, err := span.Facts(nil); err == nil {
+	if _, err := span.Facts(nilContext); err == nil {
 		t.Fatal("nil context facts")
 	}
 	if _, err := span.Facts(ctx); !errors.Is(err, context.Canceled) {
