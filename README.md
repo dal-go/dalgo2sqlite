@@ -80,16 +80,22 @@ Observed cleanup errors are returned; `database/sql` may consume an error from
 its automatic rollback after cancellation, so universal rollback diagnostics
 are not promised.
 
-`MaxBytes` limits combined accepted native value bytes, with a separate
-`MaxColumns` ceiling. After discovering the actual column count `N`, the span
-sets and reads back `SQLITE_LIMIT_LENGTH` as `floor(MaxBytes/N)`, requiring at
-least eight bytes per column. The actual bound is reported as `MaxCellBytes`.
-UTF-8 admission avoids native UTF-16-to-UTF-8 expansion. These are conservative
-all-or-nothing checks: a cell below `MaxBytes` can still exceed `MaxCellBytes`
-and refuse the operation. There is no filtering or truncation. Row count,
-serialized output, supported value classes, finite numbers and valid UTF-8
-still need independent host bounds/validation. SQLite row headers, pager/cache,
-opaque driver storage and Go heap overhead are outside this byte bound.
+`MaxBytes` is used to derive a native per-cell limit, with a separate
+`MaxColumns` ceiling. After discovering the selected table's actual column count `N`, the
+span sets and reads back `SQLITE_LIMIT_LENGTH` as `floor(MaxBytes/N)`, requiring
+at least eight bytes per column. This native per-cell bound is reported as
+`MaxCellBytes`. The sum of accepted native value bytes is bounded by `MaxBytes`
+only when the host enforces a frozen one-table query returning exactly those
+original `N` table columns. `Session` is a generic read surface: it does not
+enforce query shape or permissions, and arbitrary projections/expressions do
+not inherit that combined-value bound.
+
+UTF-8 admission avoids native UTF-16-to-UTF-8 expansion. The per-cell checks
+are conservative and all-or-nothing: a cell below `MaxBytes` can still exceed
+`MaxCellBytes` and refuse the operation. There is no filtering or truncation.
+Row count, serialized output, supported value classes, finite numbers and valid
+UTF-8 still need independent host bounds/validation. SQLite row headers,
+pager/cache, opaque driver storage and Go heap overhead are outside the bound.
 
 These facts are neither permissions nor authenticated source identity. The
 host must authorize before opening, secure the returned DALgo session, and

@@ -18,11 +18,15 @@ import (
 	sqlite3 "modernc.org/sqlite/lib"
 )
 
-// TableReadLimits bounds combined accepted native value bytes and result columns
-// before data SQL. It excludes encoded-row/driver/Go overhead. A per-cell bound
-// derived from actual column count can refuse cells below MaxBytes; no truncation
-// or guarantee of accepting every smaller row is implied. The host must also
-// bound row count and serialized output.
+// TableReadLimits configures a derived per-cell limit and column ceiling before
+// data SQL.
+// A combined accepted-value bound of MaxBytes applies only when the host enforces
+// a frozen query returning exactly the selected table's original N columns.
+// Session is a generic read surface, not a query-shape or permission enforcer;
+// arbitrary projections/expressions do not inherit that combined-value bound.
+// The derived per-cell bound can refuse cells below MaxBytes; no truncation or
+// guarantee of accepting every smaller row is implied. Encoded-row/driver/Go
+// overhead is excluded. The host must also bound row count and serialized output.
 // MaxBytes must be 1..256KiB and MaxColumns 1..128.
 type TableReadLimits struct{ MaxBytes, MaxColumns uint32 }
 
