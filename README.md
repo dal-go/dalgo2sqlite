@@ -58,3 +58,51 @@ Run the complete acceptance journey from this repository's root:
 ```sh
 go test ./end2end -run 'TestTugQL(NestedJoinChinook|JoinFixtureManifest|JoinNegativeFixtures)' -count=1
 ```
+
+## Optional pinned table reads
+
+`OpenTableRead` returns an owned `TableReadSpan` for one existing absolute
+SQLite file. Its first supported profile requires the exact native file route,
+UTF-8 encoding, explicit `main`, and a simple ASCII ordinary-table name.
+Views, virtual/shadow/generated tables, SQLite internal tables, attachments,
+temp databases and implicit or rewritten identifiers are refused. Existing
+`NewDatabase` behavior is unchanged.
+
+The span privately retains one `mode=ro` connection and a rollback-only
+transaction. It establishes `query_only`, native limits, exact catalog spelling
+and ordinary columns before a data reader is available. `Facts` subsequently
+returns cloned immutable metadata and checks liveness without issuing SQL.
+`Session` exposes only DALgo read methods with a fixed SQLite compiler and
+native values; every call remains linked to the original span cancellation and
+the earlier caller/span deadline. Readers retain that context until close,
+EOF or error. Always close readers and the span and inspect their errors.
+Observed cleanup errors are returned; `database/sql` may consume an error from
+its automatic rollback after cancellation, so universal rollback diagnostics
+are not promised.
+
+`MaxBytes` is used to derive a native per-cell limit, with a separate
+`MaxColumns` ceiling. After discovering the selected table's actual column count `N`, the
+span sets and reads back `SQLITE_LIMIT_LENGTH` as `floor(MaxBytes/N)`, requiring
+at least eight bytes per column. This native per-cell bound is reported as
+`MaxCellBytes`. The sum of accepted native value bytes is bounded by `MaxBytes`
+only when the host enforces a frozen one-table query returning exactly those
+original `N` table columns. `Session` is a generic read surface: it does not
+enforce query shape or permissions, and arbitrary projections/expressions do
+not inherit that combined-value bound.
+
+UTF-8 admission avoids native UTF-16-to-UTF-8 expansion. The per-cell checks
+are conservative and all-or-nothing: a cell below `MaxBytes` can still exceed
+`MaxCellBytes` and refuse the operation. There is no filtering or truncation.
+Row count, serialized output, supported value classes, finite numbers and valid
+UTF-8 still need independent host bounds/validation. SQLite row headers,
+pager/cache, opaque driver storage and Go heap overhead are outside the bound.
+
+These facts are neither permissions nor authenticated source identity. The
+host must authorize before opening, secure the returned DALgo session, and
+independently bind its owned/fixed private file route to the authenticated
+source. `Filename` describes SQLite's logical opened-file route; it does not
+attest OS inode identity or protect against external filesystem replacement.
+Caller-owned records and opaque driver buffers are not covered by a purge
+promise. The owned temporary-file tests establish this optional API profile;
+they do not certify every SQLite configuration or activate any application
+security routes.
