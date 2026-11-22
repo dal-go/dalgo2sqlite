@@ -6,7 +6,7 @@ require (
 	github.com/dal-go/dalgo v0.102.6
 	github.com/dal-go/dalgo2sql v0.32.0
 	github.com/dal-go/record v0.1.5
-	modernc.org/sqlite v1.62.0
+	modernc.org/sqlite v1.63.0
 )
 
 require (
