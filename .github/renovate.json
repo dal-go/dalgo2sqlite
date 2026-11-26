@@ -1,8 +1,104 @@
 {
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "github>dal-go/dalgo-renovate-config"
+    "config:recommended",
+    ":semanticCommits"
   ],
+  "dependencyDashboard": {
+    "enabled": true
+  },
+  "prConcurrentLimit": 3,
+  "branchConcurrentLimit": 3,
+  "prHourlyLimit": 2,
+  "automerge": false,
+  "automergeType": "pr",
+  "platformAutomerge": true,
+  "rebaseWhen": "behind-base-branch",
   "packageRules": [
+    {
+      "description": "Group compatible Go module dependency updates",
+      "matchManagers": [
+        "gomod"
+      ],
+      "matchDatasources": [
+        "go"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "groupName": "Go dependency updates"
+    },
+    {
+      "description": "Batch low-risk Go test updates behind the required checks",
+      "matchManagers": [
+        "gomod"
+      ],
+      "matchPackageNames": [
+        "github.com/DATA-DOG/go-sqlmock",
+        "github.com/stretchr/testify"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "groupName": "Go test dependencies",
+      "automerge": true
+    },
+    {
+      "description": "Automerge SHA-pinned patches of the first-party reusable CI workflow",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchDepTypes": [
+        "workflow"
+      ],
+      "matchPackageNames": [
+        "strongo/cicd"
+      ],
+      "matchFileNames": [
+        ".github/workflows/ci.yml"
+      ],
+      "matchUpdateTypes": [
+        "patch"
+      ],
+      "pinDigests": true,
+      "automerge": true
+    },
+    {
+      "description": "Automerge official Go toolchain patches",
+      "matchManagers": [
+        "gomod"
+      ],
+      "matchDatasources": [
+        "golang-version"
+      ],
+      "matchDepTypes": [
+        "toolchain"
+      ],
+      "matchPackageNames": [
+        "go"
+      ],
+      "matchUpdateTypes": [
+        "patch"
+      ],
+      "automerge": true
+    },
+    {
+      "description": "Review major changes in the dashboard before opening a PR",
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "dependencyDashboardApproval": true,
+      "automerge": false
+    },
+    {
+      "description": "Keep TypeScript below 7",
+      "matchPackageNames": [
+        "typescript"
+      ],
+      "allowedVersions": "<7"
+    },
     {
       "matchPackageNames": [
         "github.com/dal-go/dalgo2sql"
